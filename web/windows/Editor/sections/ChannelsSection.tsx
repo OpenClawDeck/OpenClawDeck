@@ -2,7 +2,7 @@ import React, { useState, useCallback, useMemo } from 'react';
 import { SectionProps } from '../sectionTypes';
 import { ConfigSection, TextField, PasswordField, SelectField, SwitchField, ArrayField, NumberField, EmptyState } from '../fields';
 import { getTranslation } from '../../../locales';
-import { gwApi } from '../../../services/api';
+import { gwApi, gatewayApi, pairingApi } from '../../../services/api';
 import { post } from '../../../services/request';
 
 // ============================================================================
@@ -109,6 +109,11 @@ export const ChannelsSection: React.FC<SectionProps> = ({ config, setField, getF
   const [wizTestStatus, setWizTestStatus] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle');
   const [wizTestMsg, setWizTestMsg] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [restarting, setRestarting] = useState(false);
+  const [showPairing, setShowPairing] = useState(false);
+  const [pairingCode, setPairingCode] = useState('');
+  const [pairingStatus, setPairingStatus] = useState<'idle' | 'approving' | 'success' | 'error'>('idle');
+  const [pairingError, setPairingError] = useState('');
 
   const handleWizardTest = useCallback(async (chId: string) => {
     setWizTestStatus('testing');
@@ -214,7 +219,39 @@ export const ChannelsSection: React.FC<SectionProps> = ({ config, setField, getF
   const resetWizard = useCallback(() => {
     setAddingChannel(null);
     setWizardStep(0);
+    setShowPairing(false);
+    setPairingCode('');
+    setPairingStatus('idle');
+    setPairingError('');
   }, []);
+
+  const handleFinishWizard = useCallback(async (chId: string) => {
+    const dmPolicy = getField(['channels', chId, 'dmPolicy']) || 'pairing';
+    setRestarting(true);
+    try {
+      await gatewayApi.restart();
+    } catch { /* ignore */ }
+    setRestarting(false);
+    if (dmPolicy === 'pairing') {
+      setShowPairing(true);
+    } else {
+      resetWizard();
+    }
+  }, [getField, resetWizard]);
+
+  const handleApprovePairing = useCallback(async (chId: string) => {
+    if (!pairingCode.trim()) return;
+    setPairingStatus('approving');
+    setPairingError('');
+    try {
+      await pairingApi.approve(chId, pairingCode.trim());
+      setPairingStatus('success');
+      setTimeout(() => resetWizard(), 1500);
+    } catch (err: any) {
+      setPairingStatus('error');
+      setPairingError(err?.message || 'Approval failed');
+    }
+  }, [pairingCode, resetWizard]);
 
   const tip = (key: string) => (es as any)[TIP_KEYS[key]] || '';
 
@@ -858,36 +895,70 @@ export const ChannelsSection: React.FC<SectionProps> = ({ config, setField, getF
               {stepActive(4) && chId && (
                 <div className="px-4 pb-4 border-t border-slate-100 dark:border-white/[0.04]">
                   <div className="pt-3 space-y-3">
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                      <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-white/[0.03]">
-                        <div className="text-[11px] text-slate-400 dark:text-white/40">{es.selectChannel}</div>
-                        <div className="text-[11px] font-bold text-slate-800 dark:text-white/90 mt-0.5">{chInfo ? (es as any)[chInfo.labelKey] : chId}</div>
-                      </div>
-                      <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-white/[0.03]">
-                        <div className="text-[11px] text-slate-400 dark:text-white/40">{es.dmPolicy}</div>
-                        <div className="text-[11px] font-bold text-slate-800 dark:text-white/90 mt-0.5">{getField(['channels', chId, 'dmPolicy']) || 'pairing'}</div>
-                      </div>
-                      <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-white/[0.03]">
-                        <div className="text-[11px] text-slate-400 dark:text-white/40">{es.enabled}</div>
-                        <div className="text-[11px] font-bold text-slate-800 dark:text-white/90 mt-0.5">{cfg.enabled !== false ? '✅' : '❌'}</div>
-                      </div>
-                    </div>
-                    <pre className="p-3 rounded-lg bg-slate-900 dark:bg-black/40 text-green-400 text-[10px] font-mono overflow-x-auto max-h-36 overflow-y-auto custom-scrollbar leading-relaxed">
-                      {JSON.stringify(channels[chId] || {}, null, 2)}
-                    </pre>
-                    {/* Restart reminder */}
-                    <div className="flex items-start gap-2 p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-500/5 border border-emerald-200 dark:border-emerald-500/20">
-                      <span className="material-symbols-outlined text-[14px] text-emerald-500 mt-0.5">restart_alt</span>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400">{cw.restartReminder}</p>
-                        <code className="text-[11px] text-emerald-600 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-500/10 px-1.5 py-0.5 rounded mt-1 inline-block">{cw.restartCmd}</code>
-                      </div>
-                    </div>
-                    {/* Pitfall reminder on confirm page */}
-                    {pitfall && (
-                      <div className="flex items-start gap-2 p-2.5 rounded-lg bg-amber-50 dark:bg-amber-500/5 border border-amber-200 dark:border-amber-500/20">
-                        <span className="material-symbols-outlined text-[14px] text-amber-500 mt-0.5">warning</span>
-                        <p className="text-[10px] text-amber-700 dark:text-amber-400 leading-relaxed">{pitfall}</p>
+                    {!showPairing ? (
+                      <>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                          <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-white/[0.03]">
+                            <div className="text-[11px] text-slate-400 dark:text-white/40">{es.selectChannel}</div>
+                            <div className="text-[11px] font-bold text-slate-800 dark:text-white/90 mt-0.5">{chInfo ? (es as any)[chInfo.labelKey] : chId}</div>
+                          </div>
+                          <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-white/[0.03]">
+                            <div className="text-[11px] text-slate-400 dark:text-white/40">{es.dmPolicy}</div>
+                            <div className="text-[11px] font-bold text-slate-800 dark:text-white/90 mt-0.5">{getField(['channels', chId, 'dmPolicy']) || 'pairing'}</div>
+                          </div>
+                          <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-white/[0.03]">
+                            <div className="text-[11px] text-slate-400 dark:text-white/40">{es.enabled}</div>
+                            <div className="text-[11px] font-bold text-slate-800 dark:text-white/90 mt-0.5">{cfg.enabled !== false ? '✅' : '❌'}</div>
+                          </div>
+                        </div>
+                        {restarting && (
+                          <div className="flex items-center gap-3 p-3 rounded-xl bg-primary/10 border border-primary/20">
+                            <span className="material-symbols-outlined text-primary animate-spin">progress_activity</span>
+                            <span className="text-sm text-primary font-medium">{cw.restartingGateway || '正在重启网关...'}</span>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2 text-primary">
+                          <span className="material-symbols-outlined text-xl">link</span>
+                          <span className="text-sm font-bold">{cw.pairingGuideTitle || '配对验证'}</span>
+                        </div>
+                        <div className="text-xs text-slate-600 dark:text-white/60 space-y-1">
+                          <p>1. {cw.pairingStep1 || '向 Bot 发送任意普通消息（不是命令）'}</p>
+                          <p>2. {cw.pairingStep2 || 'Bot 会回复一个配对码'}</p>
+                          <p>3. {cw.pairingStep3 || '在下方输入配对码并点击批准'}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={pairingCode}
+                            onChange={e => setPairingCode(e.target.value)}
+                            placeholder={cw.pairingCodePlaceholder || '输入配对码'}
+                            className="flex-1 h-9 px-3 bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-lg text-sm outline-none"
+                          />
+                          <button
+                            onClick={() => handleApprovePairing(chId)}
+                            disabled={!pairingCode.trim() || pairingStatus === 'approving'}
+                            className="h-9 px-4 bg-primary text-white text-xs font-bold rounded-lg disabled:opacity-50 flex items-center gap-1"
+                          >
+                            {pairingStatus === 'approving' && <span className="material-symbols-outlined text-sm animate-spin">progress_activity</span>}
+                            {pairingStatus === 'success' && <span className="material-symbols-outlined text-sm">check</span>}
+                            {cw.pairingApprove || '批准'}
+                          </button>
+                        </div>
+                        {pairingStatus === 'success' && (
+                          <div className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+                            <span className="material-symbols-outlined text-sm">check_circle</span>
+                            {cw.pairingSuccess || '配对成功！'}
+                          </div>
+                        )}
+                        {pairingStatus === 'error' && pairingError && (
+                          <div className="text-xs text-red-500 flex items-center gap-1">
+                            <span className="material-symbols-outlined text-sm">error</span>
+                            {pairingError}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -896,11 +967,18 @@ export const ChannelsSection: React.FC<SectionProps> = ({ config, setField, getF
                       className="px-4 py-1.5 text-[11px] font-bold text-red-500 hover:text-red-600">
                       {es.deleteCancel}
                     </button>
-                    <button onClick={resetWizard}
-                      className="px-5 py-1.5 bg-green-500 hover:bg-green-600 text-white text-[11px] font-bold rounded-lg transition-colors flex items-center gap-1">
-                      <span className="material-symbols-outlined text-[14px]">check</span>
-                      {cw.finish || es.done}
-                    </button>
+                    {!showPairing ? (
+                      <button onClick={() => handleFinishWizard(chId)} disabled={restarting}
+                        className="px-5 py-1.5 bg-green-500 hover:bg-green-600 text-white text-[11px] font-bold rounded-lg transition-colors flex items-center gap-1 disabled:opacity-50">
+                        {restarting ? <span className="material-symbols-outlined text-[14px] animate-spin">progress_activity</span> : <span className="material-symbols-outlined text-[14px]">check</span>}
+                        {cw.finish || es.done}
+                      </button>
+                    ) : (
+                      <button onClick={resetWizard}
+                        className="px-5 py-1.5 bg-slate-200 dark:bg-white/10 text-slate-700 dark:text-white/70 text-[11px] font-bold rounded-lg transition-colors">
+                        {cw.skipPairing || '跳过'}
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
