@@ -1,0 +1,745 @@
+
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Language } from '../types';
+import { getTranslation } from '../locales';
+import { gwApi } from '../services/api';
+
+interface UsageProps {
+  language: Language;
+}
+
+type DateRange = 'today' | '7d' | '30d' | 'custom';
+
+interface UsageTotals {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  totalTokens: number;
+  totalCost: number;
+  inputCost: number;
+  outputCost: number;
+  cacheReadCost: number;
+  cacheWriteCost: number;
+}
+
+interface SessionEntry {
+  key: string;
+  label?: string;
+  lastActiveAt?: number;
+  totals: UsageTotals;
+  messages?: { total: number; user: number; assistant: number; toolCalls: number; errors: number };
+}
+
+interface DailyEntry {
+  date: string;
+  tokens: number;
+  cost: number;
+  messages?: number;
+  toolCalls?: number;
+  errors?: number;
+}
+
+interface ModelEntry {
+  provider?: string;
+  model?: string;
+  count: number;
+  totals: UsageTotals;
+}
+
+interface UsageData {
+  totals: UsageTotals;
+  sessions: SessionEntry[];
+  aggregates: {
+    messages: { total: number; user: number; assistant: number; toolCalls: number; toolResults: number; errors: number };
+    tools: { totalCalls: number; uniqueTools: number; tools: Array<{ name: string; count: number }> };
+    byModel: ModelEntry[];
+    byProvider: ModelEntry[];
+    daily: DailyEntry[];
+    latency?: { count: number; avgMs: number; p95Ms: number; minMs: number; maxMs: number };
+  };
+}
+
+interface CostData {
+  totals: UsageTotals;
+  daily: Array<UsageTotals & { date: string }>;
+  days: number;
+}
+
+// Format helpers
+function fmtTokens(n: number | undefined | null): string {
+  const v = n || 0;
+  if (v >= 1_000_000_000) return (v / 1_000_000_000).toFixed(1) + 'B';
+  if (v >= 1_000_000) return (v / 1_000_000).toFixed(1) + 'M';
+  if (v >= 1_000) return (v / 1_000).toFixed(1) + 'K';
+  return v.toFixed(0);
+}
+
+function fmtCost(n: number | undefined | null): string {
+  const v = n || 0;
+  if (v === 0) return '$0.00';
+  if (v < 0.01) return '<$0.01';
+  return '$' + v.toFixed(2);
+}
+
+function fmtMs(n: number | undefined | null): string {
+  const v = n || 0;
+  if (v >= 1000) return (v / 1000).toFixed(1) + 's';
+  return v.toFixed(0) + 'ms';
+}
+
+function fmtDate(d: string): string {
+  const parts = d.split('-');
+  if (parts.length === 3) return `${parts[1]}/${parts[2]}`;
+  return d;
+}
+
+function getDateRange(range: DateRange, customStart: string, customEnd: string): { startDate: string; endDate: string } {
+  const now = new Date();
+  const end = now.toISOString().split('T')[0];
+  if (range === 'custom') return { startDate: customStart || end, endDate: customEnd || end };
+  const days = range === 'today' ? 0 : range === '7d' ? 6 : 29;
+  const start = new Date(now);
+  start.setDate(start.getDate() - days);
+  return { startDate: start.toISOString().split('T')[0], endDate: end };
+}
+
+// Mini sparkline SVG chart
+function Sparkline({ data, color, height = 40, width = 120 }: { data: number[]; color: string; height?: number; width?: number }) {
+  if (!data.length) return null;
+  const max = Math.max(...data, 1);
+  const min = Math.min(...data, 0);
+  const range = max - min || 1;
+  const points = data.map((v, i) => {
+    const x = (i / Math.max(data.length - 1, 1)) * width;
+    const y = height - ((v - min) / range) * (height - 4) - 2;
+    return `${x},${y}`;
+  }).join(' ');
+  const areaPoints = points + ` ${width},${height} 0,${height}`;
+  return (
+    <svg width={width} height={height} className="overflow-visible">
+      <defs>
+        <linearGradient id={`grad-${color.replace('#', '')}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.3" />
+          <stop offset="100%" stopColor={color} stopOpacity="0.02" />
+        </linearGradient>
+      </defs>
+      <polygon points={areaPoints} fill={`url(#grad-${color.replace('#', '')})`} />
+      <polyline points={points} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+// Animated bar for breakdown charts
+function AnimatedBar({ value, max, color, label, sublabel, rightLabel }: { value: number; max: number; color: string; label: string; sublabel?: string; rightLabel: string }) {
+  const pct = max > 0 ? Math.max((value / max) * 100, 0.5) : 0;
+  return (
+    <div className="group">
+      <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <span className="text-[11px] font-semibold truncate dark:text-white/90 text-slate-700">{label}</span>
+          {sublabel && <span className="text-[10px] text-slate-400 dark:text-white/40 truncate">{sublabel}</span>}
+        </div>
+        <span className="text-[11px] font-mono font-bold tabular-nums ml-2 shrink-0 dark:text-white/70 text-slate-500">{rightLabel}</span>
+      </div>
+      <div className="h-2 rounded-full bg-slate-100 dark:bg-white/[0.06] overflow-hidden">
+        <div
+          className="h-full rounded-full transition-all duration-700 ease-out"
+          style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${color}, ${color}cc)` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// Donut chart
+function DonutChart({ segments, size = 100 }: { segments: Array<{ value: number; color: string; label: string }>; size?: number }) {
+  const total = segments.reduce((s, seg) => s + seg.value, 0);
+  if (total === 0) return null;
+  const r = (size - 8) / 2;
+  const cx = size / 2;
+  const cy = size / 2;
+  const circumference = 2 * Math.PI * r;
+  let offset = 0;
+
+  return (
+    <svg width={size} height={size} className="transform -rotate-90">
+      {segments.filter(s => s.value > 0).map((seg, i) => {
+        const pct = seg.value / total;
+        const dashLen = pct * circumference;
+        const dashOffset = -offset * circumference;
+        offset += pct;
+        return (
+          <circle
+            key={i}
+            cx={cx} cy={cy} r={r}
+            fill="none"
+            stroke={seg.color}
+            strokeWidth="6"
+            strokeDasharray={`${dashLen} ${circumference - dashLen}`}
+            strokeDashoffset={dashOffset}
+            strokeLinecap="round"
+            className="transition-all duration-700"
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
+// Daily trend area chart
+function TrendChart({ data, height = 140 }: { data: DailyEntry[]; height?: number }) {
+  if (!data.length) return null;
+  const width = 100; // percentage-based
+  const maxTokens = Math.max(...data.map(d => d.tokens), 1);
+  const maxCost = Math.max(...data.map(d => d.cost), 0.001);
+
+  const tokenPoints = data.map((d, i) => {
+    const x = (i / Math.max(data.length - 1, 1)) * width;
+    const y = 100 - (d.tokens / maxTokens) * 85 - 5;
+    return `${x},${y}`;
+  }).join(' ');
+
+  const costPoints = data.map((d, i) => {
+    const x = (i / Math.max(data.length - 1, 1)) * width;
+    const y = 100 - (d.cost / maxCost) * 85 - 5;
+    return `${x},${y}`;
+  }).join(' ');
+
+  return (
+    <div style={{ height }} className="relative w-full">
+      <svg viewBox={`0 0 ${width} 100`} preserveAspectRatio="none" className="w-full h-full">
+        <defs>
+          <linearGradient id="tokenGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#6366f1" stopOpacity="0.25" />
+            <stop offset="100%" stopColor="#6366f1" stopOpacity="0" />
+          </linearGradient>
+          <linearGradient id="costGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.2" />
+            <stop offset="100%" stopColor="#f59e0b" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        {/* Grid lines */}
+        {[0, 25, 50, 75].map(y => (
+          <line key={y} x1="0" y1={y} x2={width} y2={y} stroke="currentColor" strokeOpacity="0.06" strokeWidth="0.3" />
+        ))}
+        {/* Token area */}
+        <polygon points={`${tokenPoints} ${width},100 0,100`} fill="url(#tokenGrad)" />
+        <polyline points={tokenPoints} fill="none" stroke="#6366f1" strokeWidth="0.8" strokeLinecap="round" strokeLinejoin="round" />
+        {/* Cost area */}
+        <polygon points={`${costPoints} ${width},100 0,100`} fill="url(#costGrad)" />
+        <polyline points={costPoints} fill="none" stroke="#f59e0b" strokeWidth="0.6" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="2,1" />
+      </svg>
+      {/* X-axis labels */}
+      <div className="absolute bottom-0 left-0 right-0 flex justify-between px-1">
+        {data.length > 0 && <span className="text-[11px] text-slate-400 dark:text-white/35">{fmtDate(data[0].date)}</span>}
+        {data.length > 1 && <span className="text-[11px] text-slate-400 dark:text-white/35">{fmtDate(data[data.length - 1].date)}</span>}
+      </div>
+    </div>
+  );
+}
+
+const Usage: React.FC<UsageProps> = ({ language }) => {
+  const t = useMemo(() => getTranslation(language), [language]);
+  const u = (t as any).usage as any;
+
+  const [range, setRange] = useState<DateRange>('7d');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [usageData, setUsageData] = useState<UsageData | null>(null);
+  const [costData, setCostData] = useState<CostData | null>(null);
+  const [tab, setTab] = useState<'overview' | 'models' | 'sessions' | 'timeseries' | 'logs'>('overview');
+
+  // Session detail (timeseries + logs)
+  const [selectedSessionKey, setSelectedSessionKey] = useState('');
+
+  // Timeseries
+  const [tsData, setTsData] = useState<any[] | null>(null);
+  const [tsLoading, setTsLoading] = useState(false);
+
+  // Usage logs
+  const [logsData, setLogsData] = useState<any[] | null>(null);
+  const [logsLoading, setLogsLoading] = useState(false);
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { startDate, endDate } = getDateRange(range, customStart, customEnd);
+      const [sessionsRes, costRes] = await Promise.all([
+        gwApi.sessionsUsage({ startDate, endDate, limit: 200 }),
+        gwApi.usageCost({ startDate, endDate }),
+      ]);
+      setUsageData(sessionsRes as any);
+      setCostData(costRes as any);
+    } catch (err: any) {
+      setError(err?.message || String(err));
+    } finally {
+      setLoading(false);
+    }
+  }, [range, customStart, customEnd]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Fetch timeseries for a specific session
+  const fetchTimeseries = useCallback(async (key?: string) => {
+    const k = key || selectedSessionKey;
+    if (!k) return;
+    setTsLoading(true);
+    try {
+      const res = await gwApi.sessionsUsageTimeseries(k) as any;
+      setTsData(Array.isArray(res?.points) ? res.points : Array.isArray(res) ? res : []);
+    } catch { setTsData([]); }
+    setTsLoading(false);
+  }, [selectedSessionKey]);
+
+  // Fetch logs for a specific session
+  const fetchLogs = useCallback(async (key?: string) => {
+    const k = key || selectedSessionKey;
+    if (!k) return;
+    setLogsLoading(true);
+    try {
+      const res = await gwApi.sessionsUsageLogs(k, { limit: 100 }) as any;
+      setLogsData(Array.isArray(res?.logs) ? res.logs : Array.isArray(res) ? res : []);
+    } catch { setLogsData([]); }
+    setLogsLoading(false);
+  }, [selectedSessionKey]);
+
+  // Open session detail (timeseries or logs)
+  const openSessionDetail = useCallback((key: string, view: 'timeseries' | 'logs') => {
+    setSelectedSessionKey(key);
+    setTsData(null);
+    setLogsData(null);
+    setTab(view);
+    if (view === 'timeseries') fetchTimeseries(key);
+    else fetchLogs(key);
+  }, [fetchTimeseries, fetchLogs]);
+
+  useEffect(() => { if (tab === 'timeseries' && tsData === null && selectedSessionKey) fetchTimeseries(); }, [tab, tsData, selectedSessionKey, fetchTimeseries]);
+  useEffect(() => { if (tab === 'logs' && logsData === null && selectedSessionKey) fetchLogs(); }, [tab, logsData, selectedSessionKey, fetchLogs]);
+
+  const totals = usageData?.totals || costData?.totals || { totalTokens: 0, totalCost: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, inputCost: 0, outputCost: 0, cacheReadCost: 0, cacheWriteCost: 0 };
+  const daily = usageData?.aggregates?.daily || costData?.daily?.map(d => ({ date: d.date, tokens: d.totalTokens, cost: d.totalCost })) || [];
+  const models = usageData?.aggregates?.byModel || [];
+  const sessions = usageData?.sessions || [];
+  const agg = usageData?.aggregates;
+  const maxModelTokens = Math.max(...models.map(m => m.totals?.totalTokens || 0), 1);
+  const maxSessionTokens = Math.max(...sessions.map(s => s.totals?.totalTokens || 0), 1);
+
+  const MODEL_COLORS = ['#6366f1', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
+
+  const tokenSegments = models.slice(0, 6).map((m, i) => ({
+    value: m.totals?.totalTokens || 0,
+    color: MODEL_COLORS[i % MODEL_COLORS.length],
+    label: m.model || m.provider || 'unknown',
+  }));
+
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden bg-white dark:bg-[#1a1c20]">
+      {/* Header */}
+      <header className="shrink-0 border-b border-slate-200 dark:border-white/5 bg-slate-50/80 dark:bg-white/[0.02]">
+        <div className="px-5 py-3 flex items-center justify-between">
+          <div>
+            <h1 className="text-sm font-bold dark:text-white/90 text-slate-800">{u.title}</h1>
+            <p className="text-[10px] text-slate-400 dark:text-white/40 mt-0.5">{u.subtitle}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {/* Date range pills */}
+            <div className="flex bg-slate-100 dark:bg-white/[0.06] p-0.5 rounded-lg border border-slate-200/50 dark:border-white/5">
+              {(['today', '7d', '30d', 'custom'] as DateRange[]).map(r => (
+                <button
+                  key={r}
+                  onClick={() => setRange(r)}
+                  className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all ${
+                    range === r
+                      ? 'bg-white dark:bg-primary shadow-sm text-slate-900 dark:text-white'
+                      : 'text-slate-400 hover:text-slate-600 dark:hover:text-white/60'
+                  }`}
+                >
+                  {r === 'today' ? u.today : r === '7d' ? u.last7d : r === '30d' ? u.last30d : u.custom}
+                </button>
+              ))}
+            </div>
+            {range === 'custom' && (
+              <div className="flex items-center gap-1.5">
+                <input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)}
+                  className="px-2 py-1 text-[10px] rounded-md border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 dark:text-white/70" />
+                <span className="text-[10px] text-slate-400">–</span>
+                <input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)}
+                  className="px-2 py-1 text-[10px] rounded-md border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 dark:text-white/70" />
+              </div>
+            )}
+            <button onClick={fetchData} disabled={loading}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-primary hover:bg-primary/5 transition-all disabled:opacity-40">
+              <span className={`material-symbols-outlined text-[18px] ${loading ? 'animate-spin' : ''}`}>refresh</span>
+            </button>
+          </div>
+        </div>
+        {/* Sub-tabs */}
+        <div className="px-5 flex gap-0.5">
+          {(['overview', 'models', 'sessions', 'timeseries', 'logs'] as const).map(tb => (
+            <button key={tb} onClick={() => setTab(tb)}
+              className={`px-4 py-2 text-[11px] font-bold border-b-2 transition-all ${
+                tab === tb
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-white/50'
+              }`}>
+              {tb === 'overview' ? u.title : tb === 'models' ? u.byModel : tb === 'sessions' ? u.bySession : tb === 'timeseries' ? u.timeseries : u.usageLogs}
+            </button>
+          ))}
+        </div>
+      </header>
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto p-5 custom-scrollbar">
+        {error && (
+          <div className="mb-4 px-4 py-3 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 text-[11px] text-red-600 dark:text-red-400">
+            {error}
+          </div>
+        )}
+
+        {loading && !usageData && (
+          <div className="flex items-center justify-center h-48 text-slate-400 dark:text-white/40">
+            <div className="flex flex-col items-center gap-2">
+              <span className="material-symbols-outlined text-3xl animate-spin">progress_activity</span>
+              <span className="text-[11px]">{u.loading}</span>
+            </div>
+          </div>
+        )}
+
+        {!loading && !usageData && !error && (
+          <div className="flex items-center justify-center h-48 text-slate-400 dark:text-white/40">
+            <div className="flex flex-col items-center gap-2">
+              <span className="material-symbols-outlined text-3xl">analytics</span>
+              <span className="text-[11px]">{u.noData}</span>
+            </div>
+          </div>
+        )}
+
+        {totals && tab === 'overview' && (
+          <div className="space-y-4 max-w-5xl mx-auto animate-in fade-in duration-300">
+            {/* KPI Cards Row */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {/* Total Tokens */}
+              <div className="relative overflow-hidden rounded-2xl border border-slate-200/60 dark:border-white/[0.06] bg-gradient-to-br from-indigo-50/50 to-white dark:from-indigo-500/[0.06] dark:to-transparent p-4">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="text-[10px] font-medium text-slate-400 dark:text-white/40 uppercase tracking-wider">{u.totalTokens}</p>
+                    <p className="text-xl font-black tabular-nums mt-1 dark:text-white text-slate-800">{fmtTokens(totals.totalTokens)}</p>
+                  </div>
+                  <div className="w-8 h-8 rounded-xl bg-indigo-500/10 flex items-center justify-center">
+                    <span className="material-symbols-outlined text-indigo-500 text-[18px]">token</span>
+                  </div>
+                </div>
+                <div className="mt-2">
+                  <Sparkline data={daily.map(d => d.tokens)} color="#6366f1" height={28} width={100} />
+                </div>
+              </div>
+
+              {/* Total Cost */}
+              <div className="relative overflow-hidden rounded-2xl border border-slate-200/60 dark:border-white/[0.06] bg-gradient-to-br from-amber-50/50 to-white dark:from-amber-500/[0.06] dark:to-transparent p-4">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="text-[10px] font-medium text-slate-400 dark:text-white/40 uppercase tracking-wider">{u.totalCost}</p>
+                    <p className="text-xl font-black tabular-nums mt-1 dark:text-white text-slate-800">{fmtCost(totals.totalCost)}</p>
+                  </div>
+                  <div className="w-8 h-8 rounded-xl bg-amber-500/10 flex items-center justify-center">
+                    <span className="material-symbols-outlined text-amber-500 text-[18px]">payments</span>
+                  </div>
+                </div>
+                <div className="mt-2">
+                  <Sparkline data={daily.map(d => d.cost)} color="#f59e0b" height={28} width={100} />
+                </div>
+              </div>
+
+              {/* Messages */}
+              <div className="relative overflow-hidden rounded-2xl border border-slate-200/60 dark:border-white/[0.06] bg-gradient-to-br from-emerald-50/50 to-white dark:from-emerald-500/[0.06] dark:to-transparent p-4">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="text-[10px] font-medium text-slate-400 dark:text-white/40 uppercase tracking-wider">{u.messages}</p>
+                    <p className="text-xl font-black tabular-nums mt-1 dark:text-white text-slate-800">{fmtTokens(agg?.messages?.total || 0)}</p>
+                  </div>
+                  <div className="w-8 h-8 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+                    <span className="material-symbols-outlined text-emerald-500 text-[18px]">chat</span>
+                  </div>
+                </div>
+                <div className="flex gap-3 mt-3 text-[10px]">
+                  <span className="text-slate-400 dark:text-white/40">{u.toolCalls}: <b className="text-slate-600 dark:text-white/60">{agg?.tools?.totalCalls || 0}</b></span>
+                  <span className="text-slate-400 dark:text-white/40">{u.errors}: <b className="text-red-400">{agg?.messages?.errors || 0}</b></span>
+                </div>
+              </div>
+
+              {/* Latency */}
+              <div className="relative overflow-hidden rounded-2xl border border-slate-200/60 dark:border-white/[0.06] bg-gradient-to-br from-violet-50/50 to-white dark:from-violet-500/[0.06] dark:to-transparent p-4">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="text-[10px] font-medium text-slate-400 dark:text-white/40 uppercase tracking-wider">{u.avgLatency}</p>
+                    <p className="text-xl font-black tabular-nums mt-1 dark:text-white text-slate-800">{agg?.latency ? fmtMs(agg.latency.avgMs) : '—'}</p>
+                  </div>
+                  <div className="w-8 h-8 rounded-xl bg-violet-500/10 flex items-center justify-center">
+                    <span className="material-symbols-outlined text-violet-500 text-[18px]">speed</span>
+                  </div>
+                </div>
+                <div className="flex gap-3 mt-3 text-[10px]">
+                  <span className="text-slate-400 dark:text-white/40">P95: <b className="text-slate-600 dark:text-white/60">{agg?.latency ? fmtMs(agg.latency.p95Ms) : '—'}</b></span>
+                  <span className="text-slate-400 dark:text-white/40">{u.sessions}: <b className="text-slate-600 dark:text-white/60">{sessions.length}</b></span>
+                </div>
+              </div>
+            </div>
+
+            {/* Daily Trend + Token Breakdown */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+              {/* Daily Trend Chart */}
+              <div className="lg:col-span-2 rounded-2xl border border-slate-200/60 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-[11px] font-bold text-slate-600 dark:text-white/60 uppercase tracking-wider">{u.daily}</h3>
+                  <div className="flex items-center gap-3 text-[10px]">
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-indigo-500" />{u.tokens}</span>
+                    <span className="flex items-center gap-1"><span className="w-2 h-0.5 bg-amber-500 rounded" style={{ width: 8 }} />{u.cost}</span>
+                  </div>
+                </div>
+                <TrendChart data={daily} height={160} />
+                {/* Daily summary below chart */}
+                {daily.length > 0 && (
+                  <div className="mt-3 grid grid-cols-3 sm:grid-cols-5 gap-2">
+                    {daily.slice(-5).map(d => (
+                      <div key={d.date} className="text-center">
+                        <p className="text-[11px] text-slate-400 dark:text-white/35">{fmtDate(d.date)}</p>
+                        <p className="text-[11px] font-bold tabular-nums dark:text-white/70 text-slate-600">{fmtTokens(d.tokens)}</p>
+                        <p className="text-[11px] font-mono text-amber-500">{fmtCost(d.cost)}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Token Distribution Donut */}
+              <div className="rounded-2xl border border-slate-200/60 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-4">
+                <h3 className="text-[11px] font-bold text-slate-600 dark:text-white/60 uppercase tracking-wider mb-3">{u.byModel}</h3>
+                <div className="flex justify-center mb-3">
+                  <div className="relative">
+                    <DonutChart segments={tokenSegments} size={110} />
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                      <span className="text-[10px] text-slate-400 dark:text-white/40">{u.total}</span>
+                      <span className="text-sm font-black tabular-nums dark:text-white text-slate-700">{fmtTokens(totals.totalTokens)}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  {tokenSegments.map((seg, i) => (
+                    <div key={i} className="flex items-center gap-2 text-[10px]">
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ background: seg.color }} />
+                      <span className="truncate flex-1 text-slate-600 dark:text-white/50">{seg.label}</span>
+                      <span className="font-mono font-bold tabular-nums text-slate-500 dark:text-white/40">{fmtTokens(seg.value)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Token I/O Breakdown */}
+            <div className="rounded-2xl border border-slate-200/60 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-4">
+              <h3 className="text-[11px] font-bold text-slate-600 dark:text-white/60 uppercase tracking-wider mb-3">Token I/O</h3>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                {[
+                  { label: u.inputTokens, value: totals.input, cost: totals.inputCost, color: '#6366f1' },
+                  { label: u.outputTokens, value: totals.output, cost: totals.outputCost, color: '#f59e0b' },
+                  { label: u.cacheRead, value: totals.cacheRead, cost: totals.cacheReadCost, color: '#10b981' },
+                  { label: u.cacheWrite, value: totals.cacheWrite, cost: totals.cacheWriteCost, color: '#8b5cf6' },
+                ].map(item => (
+                  <div key={item.label} className="text-center">
+                    <div className="w-10 h-10 mx-auto rounded-xl flex items-center justify-center mb-2" style={{ background: `${item.color}15` }}>
+                      <span className="text-lg font-black tabular-nums" style={{ color: item.color }}>{fmtTokens(item.value)}</span>
+                    </div>
+                    <p className="text-[10px] font-medium text-slate-500 dark:text-white/40">{item.label}</p>
+                    <p className="text-[10px] font-mono text-slate-400 dark:text-white/35">{fmtCost(item.cost)}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Top Tools */}
+            {agg?.tools && agg.tools.tools.length > 0 && (
+              <div className="rounded-2xl border border-slate-200/60 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-4">
+                <h3 className="text-[11px] font-bold text-slate-600 dark:text-white/60 uppercase tracking-wider mb-3">{u.toolCalls} ({agg.tools.uniqueTools})</h3>
+                <div className="space-y-2">
+                  {agg.tools.tools.slice(0, 8).map((tool, i) => (
+                    <AnimatedBar
+                      key={tool.name}
+                      value={tool.count}
+                      max={agg.tools.tools[0]?.count || 1}
+                      color={MODEL_COLORS[i % MODEL_COLORS.length]}
+                      label={tool.name}
+                      rightLabel={String(tool.count)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Models Tab */}
+        {totals && tab === 'models' && (
+          <div className="space-y-3 max-w-4xl mx-auto animate-in fade-in duration-300">
+            {models.length === 0 ? (
+              <div className="text-center py-12 text-slate-400 dark:text-white/40 text-[11px]">{u.noData}</div>
+            ) : (
+              models.map((m, i) => (
+                <div key={i} className="rounded-2xl border border-slate-200/60 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-4">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-3 h-3 rounded-full" style={{ background: MODEL_COLORS[i % MODEL_COLORS.length] }} />
+                    <div className="flex-1 min-w-0">
+                      <h4 className="text-[12px] font-bold dark:text-white/90 text-slate-700 truncate">{m.model || 'unknown'}</h4>
+                      <p className="text-[10px] text-slate-400 dark:text-white/40">{m.provider || ''} · {m.count} {u.count}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-black tabular-nums dark:text-white text-slate-700">{fmtTokens(m.totals?.totalTokens || 0)}</p>
+                      <p className="text-[10px] font-mono text-amber-500">{fmtCost((m.totals?.totalCost || 0))}</p>
+                    </div>
+                  </div>
+                  <AnimatedBar value={m.totals?.totalTokens || 0} max={maxModelTokens} color={MODEL_COLORS[i % MODEL_COLORS.length]}
+                    label={`${u.input}: ${fmtTokens((m.totals?.input || 0))}`} sublabel={`${u.output}: ${fmtTokens((m.totals?.output || 0))}`}
+                    rightLabel={`${(((m.totals?.totalTokens || 0) / (totals?.totalTokens || 1)) * 100).toFixed(1)}%`} />
+                </div>
+              ))
+            )}
+          </div>
+        )}
+
+        {/* Sessions Tab */}
+        {totals && tab === 'sessions' && (
+          <div className="space-y-2 max-w-4xl mx-auto animate-in fade-in duration-300">
+            {sessions.length === 0 ? (
+              <div className="text-center py-12 text-slate-400 dark:text-white/40 text-[11px]">{u.noData}</div>
+            ) : (
+              sessions
+                .sort((a, b) => (b.totals?.totalTokens || 0) - (a.totals?.totalTokens || 0))
+                .slice(0, 50)
+                .map((s, i) => (
+                  <div key={s.key} className="rounded-xl border border-slate-200/60 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] px-4 py-3 hover:border-primary/30 transition-colors">
+                    <div className="flex items-center gap-3">
+                      <div className="w-6 h-6 rounded-lg bg-slate-100 dark:bg-white/[0.06] flex items-center justify-center text-[10px] font-bold text-slate-400 dark:text-white/40">
+                        {i + 1}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[11px] font-bold dark:text-white/80 text-slate-700 truncate">{s.label || s.key}</p>
+                        <div className="flex gap-3 mt-0.5 text-[10px] text-slate-400 dark:text-white/35">
+                          <span>{u.messages}: {s.messages?.total || 0}</span>
+                          <span>{u.toolCalls}: {s.messages?.toolCalls || 0}</span>
+                          {(s.messages?.errors || 0) > 0 && <span className="text-red-400">{u.errors}: {s.messages?.errors}</span>}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <div className="text-right mr-1">
+                          <p className="text-[12px] font-bold tabular-nums dark:text-white/80 text-slate-600">{fmtTokens(s.totals?.totalTokens || 0)}</p>
+                          <p className="text-[10px] font-mono text-amber-500">{fmtCost((s.totals?.totalCost || 0))}</p>
+                        </div>
+                        <button onClick={() => openSessionDetail(s.key, 'timeseries')}
+                          className="w-7 h-7 rounded-lg bg-indigo-500/10 text-indigo-500 hover:bg-indigo-500/20 flex items-center justify-center transition-colors"
+                          title={u.timeseries}>
+                          <span className="material-symbols-outlined text-[14px]">timeline</span>
+                        </button>
+                        <button onClick={() => openSessionDetail(s.key, 'logs')}
+                          className="w-7 h-7 rounded-lg bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 flex items-center justify-center transition-colors"
+                          title={u.usageLogs}>
+                          <span className="material-symbols-outlined text-[14px]">receipt_long</span>
+                        </button>
+                      </div>
+                    </div>
+                    <div className="mt-2">
+                      <div className="h-1.5 rounded-full bg-slate-100 dark:bg-white/[0.04] overflow-hidden">
+                        <div className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-indigo-400 transition-all duration-500"
+                          style={{ width: `${Math.max(((s.totals?.totalTokens || 0) / maxSessionTokens) * 100, 0.5)}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                ))
+            )}
+          </div>
+        )}
+
+        {/* Timeseries Tab */}
+        {tab === 'timeseries' && (
+          <div className="max-w-4xl mx-auto animate-in fade-in duration-300">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <button onClick={() => setTab('sessions')} className="p-1 text-slate-400 hover:text-primary transition-colors">
+                  <span className="material-symbols-outlined text-[16px]">arrow_back</span>
+                </button>
+                <h3 className="text-[12px] font-bold text-slate-700 dark:text-white/80">{u.timeseries}</h3>
+                {selectedSessionKey && <span className="text-[10px] font-mono text-slate-400 dark:text-white/35 truncate max-w-[200px]">{selectedSessionKey}</span>}
+              </div>
+              <button onClick={() => { setTsData(null); fetchTimeseries(); }} disabled={tsLoading}
+                className="text-[10px] text-primary hover:underline disabled:opacity-40">{u.refresh}</button>
+            </div>
+            {tsLoading ? (
+              <div className="flex items-center justify-center py-16 text-slate-400">
+                <span className="material-symbols-outlined text-[20px] animate-spin mr-2">progress_activity</span>
+                <span className="text-[11px]">{u.timeseriesLoading}</span>
+              </div>
+            ) : tsData && tsData.length > 0 ? (
+              <div className="space-y-1">
+                {tsData.map((pt: any, i: number) => (
+                  <div key={i} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-white dark:bg-white/[0.02] border border-slate-200/40 dark:border-white/[0.04]">
+                    <span className="text-[10px] font-mono text-slate-400 dark:text-white/40 w-28 shrink-0">{pt.timestamp || pt.date || pt.t || `#${i}`}</span>
+                    <div className="flex-1 h-1.5 rounded-full bg-slate-100 dark:bg-white/[0.04] overflow-hidden">
+                      <div className="h-full rounded-full bg-indigo-500" style={{ width: `${Math.min(100, ((pt.tokens || pt.value || 0) / Math.max(...tsData.map((p: any) => p.tokens || p.value || 1), 1)) * 100)}%` }} />
+                    </div>
+                    <span className="text-[10px] font-mono font-bold text-slate-600 dark:text-white/60 w-16 text-right">{fmtTokens(pt.tokens || pt.value || 0)}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-16 text-slate-400 dark:text-white/40 text-[11px]">{u.timeseriesEmpty}</div>
+            )}
+          </div>
+        )}
+
+        {/* Logs Tab */}
+        {tab === 'logs' && (
+          <div className="max-w-4xl mx-auto animate-in fade-in duration-300">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <button onClick={() => setTab('sessions')} className="p-1 text-slate-400 hover:text-primary transition-colors">
+                  <span className="material-symbols-outlined text-[16px]">arrow_back</span>
+                </button>
+                <h3 className="text-[12px] font-bold text-slate-700 dark:text-white/80">{u.usageLogs}</h3>
+                {selectedSessionKey && <span className="text-[10px] font-mono text-slate-400 dark:text-white/35 truncate max-w-[200px]">{selectedSessionKey}</span>}
+              </div>
+              <button onClick={() => { setLogsData(null); fetchLogs(); }} disabled={logsLoading}
+                className="text-[10px] text-primary hover:underline disabled:opacity-40">{u.loadLogs}</button>
+            </div>
+            {logsLoading ? (
+              <div className="flex items-center justify-center py-16 text-slate-400">
+                <span className="material-symbols-outlined text-[20px] animate-spin mr-2">progress_activity</span>
+                <span className="text-[11px]">{u.logsLoading}</span>
+              </div>
+            ) : logsData && logsData.length > 0 ? (
+              <div className="space-y-1">
+                {logsData.map((log: any, i: number) => (
+                  <div key={i} className="px-3 py-2 rounded-lg bg-white dark:bg-white/[0.02] border border-slate-200/40 dark:border-white/[0.04]">
+                    <div className="flex items-center gap-2 text-[10px]">
+                      <span className="font-mono text-slate-400 dark:text-white/40">{log.timestamp || log.date || log.ts || ''}</span>
+                      {log.model && <span className="px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-500 font-bold">{log.model}</span>}
+                      {log.session && <span className="text-slate-400 dark:text-white/35 truncate max-w-[120px]">{log.session}</span>}
+                      <span className="ml-auto font-mono font-bold text-slate-600 dark:text-white/60">{fmtTokens(log.tokens || 0)}</span>
+                      {log.cost != null && <span className="font-mono text-amber-500">{fmtCost(log.cost)}</span>}
+                    </div>
+                    {log.error && <p className="text-[11px] text-red-400 mt-0.5">{log.error}</p>}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-16 text-slate-400 dark:text-white/40 text-[11px]">{u.noLogs}</div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default Usage;

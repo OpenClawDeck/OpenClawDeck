@@ -1,0 +1,226 @@
+package translate
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+	"sync"
+	"time"
+
+	"openclawdeck/internal/logger"
+)
+
+// Translator provides text translation with dual-engine fallback:
+// MyMemory (primary, fast, China-friendly) → Google Translate (fallback).
+type Translator struct {
+	client  *http.Client
+	mu      sync.Mutex
+	lastReq time.Time
+	minGap  time.Duration
+}
+
+// New creates a Translator with sensible defaults.
+func New() *Translator {
+	return &Translator{
+		client: &http.Client{Timeout: 20 * time.Second},
+		minGap: 300 * time.Millisecond,
+	}
+}
+
+// langMap maps our short language codes to MyMemory langpair codes.
+var langMap = map[string]string{
+	"zh": "zh-CN", "zh-CN": "zh-CN", "zh-TW": "zh-TW",
+	"ja": "ja", "ko": "ko", "fr": "fr", "de": "de",
+	"es": "es", "pt": "pt", "ru": "ru", "ar": "ar",
+	"it": "it", "nl": "nl", "pl": "pl", "tr": "tr",
+}
+
+func resolveMyMemoryLang(lang string) string {
+	if mapped, ok := langMap[lang]; ok {
+		return mapped
+	}
+	return lang
+}
+
+// Translate translates text from source language to target language.
+// Uses MyMemory first, falls back to Google Translate on failure.
+func (t *Translator) Translate(ctx context.Context, text, source, target string) (string, error) {
+	if text == "" || target == "" {
+		return text, nil
+	}
+	if source == "" {
+		source = "en"
+	}
+	if target == "en" && (source == "en" || source == "auto") {
+		return text, nil
+	}
+
+	// Rate-limit
+	t.mu.Lock()
+	elapsed := time.Since(t.lastReq)
+	if elapsed < t.minGap {
+		time.Sleep(t.minGap - elapsed)
+	}
+	t.lastReq = time.Now()
+	t.mu.Unlock()
+
+	// Engine 1: MyMemory (fast, China-friendly, no API key)
+	result, err := t.myMemoryTranslate(ctx, text, source, target)
+	if err == nil && result != "" {
+		return result, nil
+	}
+	logger.Log.Debug().Err(err).Str("engine", "mymemory").Str("text", truncate(text, 40)).Msg("primary engine failed, trying fallback")
+
+	// Engine 2: Google Translate free endpoint (fallback)
+	result, err = t.googleTranslate(ctx, text, source, target)
+	if err == nil && result != "" {
+		return result, nil
+	}
+	logger.Log.Warn().Err(err).Str("target", target).Str("text", truncate(text, 60)).Msg("all translation engines failed")
+	return text, err
+}
+
+// myMemoryTranslate calls the MyMemory free translation API.
+// Docs: https://mymemory.translated.net/doc/spec.php
+// Limit: 5000 chars/day without key (sufficient for skill descriptions).
+func (t *Translator) myMemoryTranslate(ctx context.Context, text, source, target string) (string, error) {
+	tgtLang := resolveMyMemoryLang(target)
+	srcLang := resolveMyMemoryLang(source)
+	u := fmt.Sprintf(
+		"https://api.mymemory.translated.net/get?q=%s&langpair=%s|%s",
+		url.QueryEscape(text),
+		url.QueryEscape(srcLang),
+		url.QueryEscape(tgtLang),
+	)
+
+	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, u, nil)
+	if err != nil {
+		return "", fmt.Errorf("build request: %w", err)
+	}
+
+	resp, err := t.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("mymemory http: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return "", fmt.Errorf("mymemory status %d: %s", resp.StatusCode, string(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("mymemory read: %w", err)
+	}
+
+	return parseMyMemoryResponse(body)
+}
+
+// parseMyMemoryResponse extracts translated text from MyMemory JSON.
+// Response: {"responseData":{"translatedText":"...","match":0.95},...}
+func parseMyMemoryResponse(body []byte) (string, error) {
+	var resp struct {
+		ResponseData struct {
+			TranslatedText string  `json:"translatedText"`
+			Match          float64 `json:"match"`
+		} `json:"responseData"`
+		ResponseStatus int `json:"responseStatus"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return "", fmt.Errorf("parse mymemory json: %w", err)
+	}
+	if resp.ResponseStatus != 200 {
+		return "", fmt.Errorf("mymemory response status: %d", resp.ResponseStatus)
+	}
+	text := strings.TrimSpace(resp.ResponseData.TranslatedText)
+	if text == "" {
+		return "", fmt.Errorf("mymemory empty translation")
+	}
+	return text, nil
+}
+
+// googleTranslate calls Google Translate free endpoint (fallback).
+func (t *Translator) googleTranslate(ctx context.Context, text, source, target string) (string, error) {
+	u := fmt.Sprintf(
+		"https://translate.googleapis.com/translate_a/single?client=gtx&sl=%s&tl=%s&dt=t&q=%s",
+		url.QueryEscape(source),
+		url.QueryEscape(target),
+		url.QueryEscape(text),
+	)
+
+	reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, u, nil)
+	if err != nil {
+		return "", fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+
+	resp, err := t.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("google http: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return "", fmt.Errorf("google status %d: %s", resp.StatusCode, string(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("google read: %w", err)
+	}
+
+	return parseGoogleResponse(body)
+}
+
+// parseGoogleResponse extracts translated text from Google's JSON array response.
+func parseGoogleResponse(body []byte) (string, error) {
+	var raw []interface{}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return "", fmt.Errorf("parse google json: %w", err)
+	}
+	if len(raw) == 0 {
+		return "", fmt.Errorf("empty response")
+	}
+
+	sentences, ok := raw[0].([]interface{})
+	if !ok {
+		return "", fmt.Errorf("unexpected response format")
+	}
+
+	var sb strings.Builder
+	for _, s := range sentences {
+		parts, ok := s.([]interface{})
+		if !ok || len(parts) == 0 {
+			continue
+		}
+		translated, ok := parts[0].(string)
+		if ok {
+			sb.WriteString(translated)
+		}
+	}
+
+	result := sb.String()
+	if result == "" {
+		return "", fmt.Errorf("no translated text in response")
+	}
+	return result, nil
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
+}
