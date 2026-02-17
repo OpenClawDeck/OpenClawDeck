@@ -351,6 +351,8 @@
   "selfChatMode": "Self-chat Mode",
   "chDebounceMs": "Debounce (ms)",
   "guildIds": "Guild IDs",
+  "guildIdPlaceholder": "Guild ID or channel URL",
+  "guildIdLinkHint": "Paste Discord channel URL to auto-extract server ID",
   "maxLinesMsg": "Max Lines/Msg",
   "connMode": "Connection Mode",
   "chChannels": "Channels",

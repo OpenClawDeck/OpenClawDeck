@@ -284,6 +284,99 @@ export const ArrayField: React.FC<ArrayFieldProps> = ({ label, desc, tooltip, va
 };
 
 // ============================================================================
+// DiscordGuildArrayField — Discord 服务器ID数组（支持链接自动提取）
+// ============================================================================
+interface DiscordGuildArrayFieldProps {
+  label: string;
+  desc?: string;
+  tooltip?: string;
+  value: string[];
+  onChange: (v: string[]) => void;
+  placeholder?: string;
+  linkHint?: string;
+}
+
+// Extract guild ID from Discord URL: https://discord.com/channels/{guildId}/{channelId}
+function extractDiscordGuildId(input: string): string {
+  const trimmed = input.trim();
+  // Match Discord channel URL pattern
+  const match = trimmed.match(/discord\.com\/channels\/(\d+)(?:\/\d+)?/);
+  if (match) {
+    return match[1];
+  }
+  // If it's already a numeric ID, return as-is
+  if (/^\d+$/.test(trimmed)) {
+    return trimmed;
+  }
+  return trimmed;
+}
+
+export const DiscordGuildArrayField: React.FC<DiscordGuildArrayFieldProps> = ({ label, desc, tooltip, value, onChange, placeholder, linkHint }) => {
+  const [input, setInput] = useState('');
+  const [extracted, setExtracted] = useState<string | null>(null);
+  const items = Array.isArray(value) ? value : [];
+
+  // Auto-extract guild ID when input changes
+  useEffect(() => {
+    if (input.includes('discord.com/channels/')) {
+      const guildId = extractDiscordGuildId(input);
+      if (guildId && guildId !== input.trim()) {
+        setExtracted(guildId);
+      } else {
+        setExtracted(null);
+      }
+    } else {
+      setExtracted(null);
+    }
+  }, [input]);
+
+  const add = useCallback(() => {
+    const v = extracted || input.trim();
+    if (v && !items.includes(v)) {
+      onChange([...items, v]);
+      setInput('');
+      setExtracted(null);
+    }
+  }, [input, extracted, items, onChange]);
+
+  return (
+    <ConfigField label={label} desc={desc} tooltip={tooltip} inline={false}>
+      <div className="flex flex-wrap gap-1.5 min-h-[28px]">
+        {items.map((item, i) => (
+          <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary/10 text-primary text-[10px] md:text-[11px] rounded-md font-mono">
+            {item}
+            <button onClick={() => onChange(items.filter((_, j) => j !== i))} className="hover:text-red-500 transition-colors">
+              <span className="material-symbols-outlined text-[12px]">close</span>
+            </button>
+          </span>
+        ))}
+      </div>
+      <div className="flex gap-1.5 mt-1">
+        <div className="flex-1 relative">
+          <input
+            type="text"
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
+            placeholder={placeholder || 'Enter to add...'}
+            className={`${inputBase} w-full ${extracted ? 'pr-24' : ''}`}
+          />
+          {extracted && (
+            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-green-600 dark:text-green-400 font-mono bg-green-50 dark:bg-green-500/10 px-1.5 py-0.5 rounded">
+              → {extracted}
+            </span>
+          )}
+        </div>
+        <button onClick={add} className="h-8 px-2.5 bg-primary/10 text-primary text-[10px] font-bold rounded-md hover:bg-primary/20 transition-colors">+</button>
+      </div>
+      {linkHint && (
+        <p className="text-[10px] text-slate-400 dark:text-white/40 mt-1">{linkHint}</p>
+      )}
+    </ConfigField>
+  );
+};
+
+// ============================================================================
 // KeyValueField — key-value 对编辑
 // ============================================================================
 interface KeyValueFieldProps {

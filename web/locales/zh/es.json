@@ -305,6 +305,8 @@
   "selfChatMode": "自聊模式",
   "chDebounceMs": "消息防抖(ms)",
   "guildIds": "服务器 ID",
+  "guildIdPlaceholder": "服务器ID 或 频道链接",
+  "guildIdLinkHint": "支持直接粘贴 Discord 频道链接，自动提取服务器ID",
   "maxLinesMsg": "每条最大行数",
   "connMode": "连接模式",
   "chChannels": "频道",
