@@ -768,8 +768,8 @@ export const ChannelsSection: React.FC<SectionProps> = ({ config, setField, getF
                             {wizTestStatus === 'testing' ? (cw.testing || es.chSending) : wizTestStatus === 'ok' ? (cw.testOk || 'OK') : wizTestStatus === 'fail' ? (cw.testFail || 'Fail') : (cw.testConn || es.chSendTest)}
                           </span>
                         </button>
-                        {wizTestMsg && (
-                          <span className={`text-[10px] ${wizTestStatus === 'ok' ? 'text-green-600 dark:text-green-400' : 'text-red-500'}`}>{wizTestMsg}</span>
+                        {wizTestStatus === 'fail' && wizTestMsg && (
+                          <span className="text-[10px] text-red-500">{wizTestMsg}</span>
                         )}
                       </div>
                     </div>
