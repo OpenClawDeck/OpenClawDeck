@@ -202,6 +202,10 @@ export const ChannelsSection: React.FC<SectionProps> = ({ config, setField, getF
       const res = await pluginApi.install(spec);
       if (res.success) {
         setPluginInstallResult({ ok: true, msg: 'success' });
+        // Auto restart gateway after successful install
+        try {
+          await gatewayApi.restart();
+        } catch { /* ignore restart errors */ }
       } else {
         setPluginInstallResult({ ok: false, msg: res.output || 'Install failed' });
       }
