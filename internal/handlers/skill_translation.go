@@ -42,10 +42,8 @@ type translationEntry struct {
 	Status      string `json:"status"` // "cached", "translating", "none"
 }
 
-// cacheExpiry is the duration after which cached translations are considered stale.
-const cacheExpiry = 7 * 24 * time.Hour // 7 days
-
 // Get returns cached translations for the requested skill keys and language.
+// Cache invalidation is handled by sourceHash comparison in Translate(), not by time expiry.
 // GET /api/v1/skills/translations?lang=zh&keys=skill1,skill2
 func (h *SkillTranslationHandler) Get(w http.ResponseWriter, r *http.Request) {
 	lang := r.URL.Query().Get("lang")
@@ -66,14 +64,10 @@ func (h *SkillTranslationHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build lookup map, checking for expiry
-	now := time.Now()
+	// Build lookup map
 	cacheMap := make(map[string]*database.SkillTranslation, len(cached))
 	for i := range cached {
-		// Skip expired entries (treat as not cached)
-		if now.Sub(cached[i].UpdatedAt) < cacheExpiry {
-			cacheMap[cached[i].SkillKey] = &cached[i]
-		}
+		cacheMap[cached[i].SkillKey] = &cached[i]
 	}
 
 	entries := make([]translationEntry, 0, len(keys))
