@@ -339,7 +339,9 @@ const UsageWizard: React.FC<UsageWizardProps> = ({ language, onOpenEditor }) => 
   const memorySearchEnabled = !!memorySearch?.provider || !!memorySearch?.local?.modelPath;
   const memoryFlush = config?.agents?.defaults?.compaction?.memoryFlush;
   const memoryFlushEnabled = memoryFlush?.enabled !== false;
+  const configuredChannels = config?.channels ? Object.keys(config.channels).filter(k => config.channels[k]?.enabled !== false) : [];
   const activeChannels = channels.filter((ch: any) => ch.connected || ch.running || ch.status === 'connected');
+  const hasChannels = configuredChannels.length > 0 || activeChannels.length > 0;
   const defaultFiles = defaultAgentId ? (agentFiles[defaultAgentId] || []) : [];
   const hasFile = (name: string) => defaultFiles.some((f: any) => !f.missing && f.name === name);
 
@@ -363,7 +365,7 @@ const UsageWizard: React.FC<UsageWizardProps> = ({ language, onOpenEditor }) => 
         { id: 'heartbeatMd', icon: 'checklist', status: (hasFile('HEARTBEAT.md') ? 'pass' : 'warn') as CheckStatus },
       ]},
       { section: o?.secChannel, desc: o?.secChannelDesc, icon: 'forum', items: [
-        { id: 'channel', icon: 'forum', status: (activeChannels.length > 0 ? 'pass' : 'warn') as CheckStatus },
+        { id: 'channel', icon: 'forum', status: (hasChannels ? 'pass' : 'warn') as CheckStatus },
       ]},
     ];
   }
