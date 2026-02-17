@@ -541,11 +541,6 @@ export const ChannelsSection: React.FC<SectionProps> = ({ config, setField, getF
                   <button onClick={() => { setSendChannel(sendChannel === ch ? null : ch); setSendResult(null); }} className="text-slate-400 hover:text-sky-500 transition-colors" title={es.chSendTest}>
                     <span className="material-symbols-outlined text-[14px]">send</span>
                   </button>
-                  {ch === 'whatsapp' && (
-                    <button onClick={handleWebLogin} disabled={webLoginBusy} className="text-slate-400 hover:text-green-500 transition-colors" title="WhatsApp Login">
-                      <span className={`material-symbols-outlined text-[14px] ${webLoginBusy ? 'animate-spin' : ''}`}>{webLoginBusy ? 'progress_activity' : 'qr_code_2'}</span>
-                    </button>
-                  )}
                   <button onClick={() => setLogoutChannel(logoutChannel === ch ? null : ch)} className="text-slate-400 hover:text-amber-500 transition-colors" title={es.chLogout}>
                     <span className="material-symbols-outlined text-[14px]">logout</span>
                   </button>
@@ -580,12 +575,6 @@ export const ChannelsSection: React.FC<SectionProps> = ({ config, setField, getF
                       {sendResult.text}
                     </div>
                   )}
-                </div>
-              )}
-              {ch === 'whatsapp' && webLoginResult && (
-                <div className={`mb-3 px-3 py-2.5 rounded-xl text-[10px] ${webLoginResult.ok ? 'bg-mac-green/10 text-mac-green border border-mac-green/20' : 'bg-red-50 dark:bg-red-500/5 text-red-500 border border-red-200 dark:border-red-500/20'}`}>
-                  <p className="font-bold">{webLoginResult.text}</p>
-                  {webLoginResult.qr && <pre className="mt-1 text-[10px] font-mono whitespace-pre-wrap break-all">{webLoginResult.qr}</pre>}
                 </div>
               )}
               {logoutChannel === ch && (
