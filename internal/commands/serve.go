@@ -459,6 +459,11 @@ func RunServe(args []string) int {
 	router.POST("/api/v1/clawhub/update", clawHubHandler.Update)
 	router.GET("/api/v1/clawhub/installed", clawHubHandler.InstalledList)
 
+	// 插件安装（本地网关）
+	pluginInstallHandler := handlers.NewPluginInstallHandler(gwClient)
+	router.GET("/api/v1/plugins/can-install", pluginInstallHandler.CanInstall)
+	router.POST("/api/v1/plugins/install", pluginInstallHandler.Install)
+
 	// 数据导出
 	router.GET("/api/v1/export/activities", exportHandler.ExportActivities)
 	router.GET("/api/v1/export/alerts", exportHandler.ExportAlerts)

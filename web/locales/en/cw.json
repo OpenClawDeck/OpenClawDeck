@@ -272,8 +272,12 @@
     "Plugin required"
   ],
   "voicecallPitfall": "⚠️ Voice calls require a third-party provider and incur call charges",
-  "pluginRequired": "⚡ This channel requires a plugin to be installed first",
+  "pluginRequired": "⚡ This channel requires a plugin",
   "pluginInstallCmd": "Install command",
+  "installPlugin": "Install Plugin",
+  "installing": "Installing...",
+  "pluginInstallSuccess": "Plugin installed! Please restart gateway.",
+  "remoteGatewayHint": "Remote gateway detected. Please install manually via CLI:",
   "copyPermJson": "Copy Permission JSON",
   "copied": "Copied",
   "openPlatform": "Open Platform",

@@ -235,6 +235,12 @@ export const openclawApi = {
   init: (data: any) => post('/api/v1/openclaw/init', data),
 };
 
+// ==================== 插件安装 ====================
+export const pluginApi = {
+  canInstall: () => get<{ can_install: boolean; is_remote: boolean }>('/api/v1/plugins/can-install'),
+  install: (spec: string) => post<{ success: boolean; spec: string; output: string }>('/api/v1/plugins/install', { spec }),
+};
+
 // ==================== Gateway 代理 API ====================
 // 统一通过 GenericProxy (/api/v1/gw/proxy) 透传 JSON-RPC 到 Gateway。
 // 仅保留少量 REST 路由：status（本地连接检查）、sessionsUsage / usageCost（Go 层有额外参数/超时）、

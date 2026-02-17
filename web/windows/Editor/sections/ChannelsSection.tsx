@@ -2,7 +2,7 @@ import React, { useState, useCallback, useMemo } from 'react';
 import { SectionProps } from '../sectionTypes';
 import { ConfigSection, TextField, PasswordField, SelectField, SwitchField, ArrayField, NumberField, EmptyState, DiscordGuildField } from '../fields';
 import { getTranslation } from '../../../locales';
-import { gwApi, gatewayApi, pairingApi } from '../../../services/api';
+import { gwApi, gatewayApi, pairingApi, pluginApi } from '../../../services/api';
 import { post } from '../../../services/request';
 
 // ============================================================================
@@ -115,6 +115,11 @@ export const ChannelsSection: React.FC<SectionProps> = ({ config, setField, getF
   const [pairingStatus, setPairingStatus] = useState<'idle' | 'approving' | 'success' | 'error'>('idle');
   const [pairingError, setPairingError] = useState('');
 
+  // Plugin install state
+  const [canInstallPlugin, setCanInstallPlugin] = useState<boolean | null>(null);
+  const [pluginInstalling, setPluginInstalling] = useState(false);
+  const [pluginInstallResult, setPluginInstallResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
   const handleWizardTest = useCallback(async (chId: string) => {
     setWizTestStatus('testing');
     setWizTestMsg('');
@@ -177,6 +182,33 @@ export const ChannelsSection: React.FC<SectionProps> = ({ config, setField, getF
       setWebLoginResult({ ok: false, text: 'Login failed: ' + (err?.message || '') });
     }
     setWebLoginBusy(false);
+  }, []);
+
+  // Check if plugin install is available (local gateway only)
+  const checkCanInstallPlugin = useCallback(async () => {
+    try {
+      const res = await pluginApi.canInstall();
+      setCanInstallPlugin(res.can_install);
+    } catch {
+      setCanInstallPlugin(false);
+    }
+  }, []);
+
+  // Install plugin
+  const handleInstallPlugin = useCallback(async (spec: string) => {
+    setPluginInstalling(true);
+    setPluginInstallResult(null);
+    try {
+      const res = await pluginApi.install(spec);
+      if (res.success) {
+        setPluginInstallResult({ ok: true, msg: 'success' });
+      } else {
+        setPluginInstallResult({ ok: false, msg: res.output || 'Install failed' });
+      }
+    } catch (err: any) {
+      setPluginInstallResult({ ok: false, msg: err?.message || 'Install failed' });
+    }
+    setPluginInstalling(false);
   }, []);
 
   const handleSendTest = useCallback(async (ch: string) => {
@@ -608,7 +640,7 @@ export const ChannelsSection: React.FC<SectionProps> = ({ config, setField, getF
       {/* ================================================================ */}
       {!addingChannel ? (
         <button
-          onClick={() => { setAddingChannel('selecting'); setWizardStep(0); }}
+          onClick={() => { setAddingChannel('selecting'); setWizardStep(0); checkCanInstallPlugin(); }}
           className="w-full py-3 border-2 border-dashed border-primary/30 hover:border-primary/60 rounded-xl text-xs font-bold text-primary hover:bg-primary/5 transition-all flex items-center justify-center gap-2"
         >
           <span className="material-symbols-outlined text-sm">add_circle</span>
@@ -718,22 +750,53 @@ export const ChannelsSection: React.FC<SectionProps> = ({ config, setField, getF
                       </a>
                     )}
                     {/* Plugin install hint for channels that need plugins */}
-                    {chId && ['feishu', 'dingtalk', 'qq', 'msteams', 'zalo', 'voicecall', 'matrix', 'wecom', 'wecom_kf'].includes(chId) && (
-                      <div className="flex items-start gap-2 p-2.5 rounded-lg bg-violet-50 dark:bg-violet-500/5 border border-violet-200 dark:border-violet-500/20">
-                        <span className="material-symbols-outlined text-[14px] text-violet-500 mt-0.5">extension</span>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[10px] font-bold text-violet-700 dark:text-violet-400">{cw.pluginRequired}</p>
-                          <code className="text-[11px] text-violet-600 dark:text-violet-300 bg-violet-100 dark:bg-violet-500/10 px-1.5 py-0.5 rounded mt-1 block break-all">
-                            {chId === 'feishu' ? 'openclaw plugins install @m1heng-clawd/feishu' :
-                              chId === 'dingtalk' ? 'openclaw plugins install @openclaw-china/dingtalk' :
-                                chId === 'wecom' ? 'openclaw plugins install @openclaw-china/wecom' :
-                                  chId === 'wecom_kf' ? 'openclaw plugins install @openclaw-china/wecom-app' :
-                                    chId === 'qq' ? 'openclaw plugins install @openclaw-china/qqbot' :
-                                      'openclaw plugins install <plugin-url>'}
-                          </code>
+                    {chId && ['feishu', 'dingtalk', 'qq', 'msteams', 'zalo', 'voicecall', 'matrix', 'wecom', 'wecom_kf'].includes(chId) && (() => {
+                      const pluginSpec = chId === 'feishu' ? '@m1heng-clawd/feishu' :
+                        chId === 'dingtalk' ? '@openclaw-china/dingtalk' :
+                          chId === 'wecom' ? '@openclaw-china/wecom' :
+                            chId === 'wecom_kf' ? '@openclaw-china/wecom-app' :
+                              chId === 'qq' ? '@openclaw-china/qqbot' :
+                                chId === 'msteams' ? '@openclaw/msteams' :
+                                  chId === 'zalo' ? '@openclaw/zalo' :
+                                    chId === 'matrix' ? '@openclaw/matrix' :
+                                      chId === 'voicecall' ? '@openclaw/voice-call' : '';
+                      return (
+                        <div className="flex flex-col gap-2 p-2.5 rounded-lg bg-violet-50 dark:bg-violet-500/5 border border-violet-200 dark:border-violet-500/20">
+                          <div className="flex items-start gap-2">
+                            <span className="material-symbols-outlined text-[14px] text-violet-500 mt-0.5">extension</span>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[10px] font-bold text-violet-700 dark:text-violet-400">{cw.pluginRequired}</p>
+                              {canInstallPlugin === true ? (
+                                <div className="mt-2 flex flex-col gap-2">
+                                  <button
+                                    onClick={() => handleInstallPlugin(pluginSpec)}
+                                    disabled={pluginInstalling}
+                                    className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-violet-500 hover:bg-violet-600 text-white text-[11px] font-bold transition-all disabled:opacity-50"
+                                  >
+                                    <span className={`material-symbols-outlined text-[14px] ${pluginInstalling ? 'animate-spin' : ''}`}>
+                                      {pluginInstalling ? 'progress_activity' : 'download'}
+                                    </span>
+                                    {pluginInstalling ? (cw.installing || 'Installing...') : (cw.installPlugin || 'Install Plugin')}
+                                  </button>
+                                  {pluginInstallResult && (
+                                    <div className={`px-2 py-1.5 rounded text-[10px] ${pluginInstallResult.ok ? 'bg-green-100 dark:bg-green-500/10 text-green-600' : 'bg-red-100 dark:bg-red-500/10 text-red-500'}`}>
+                                      {pluginInstallResult.ok ? (cw.pluginInstallSuccess || 'Plugin installed! Please restart gateway.') : pluginInstallResult.msg}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <code className="text-[11px] text-violet-600 dark:text-violet-300 bg-violet-100 dark:bg-violet-500/10 px-1.5 py-0.5 rounded mt-1 block break-all">
+                                  openclaw plugins install {pluginSpec}
+                                </code>
+                              )}
+                              {canInstallPlugin === false && (
+                                <p className="text-[10px] text-violet-500 dark:text-violet-400 mt-1">{cw.remoteGatewayHint || 'Remote gateway detected. Please install manually via CLI.'}</p>
+                              )}
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      );
+                    })()}
                     {prepSteps.length > 0 ? prepSteps.map((s: string, i: number) => (
                       <div key={i} className="flex items-start gap-2.5 p-2.5 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200/60 dark:border-white/[0.04]">
                         <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary text-[10px] font-bold flex items-center justify-center mt-0.5">{i + 1}</span>
