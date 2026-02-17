@@ -481,7 +481,7 @@
   "tipVoiceProvider": "Voice provider: Twilio/Telnyx for production, Mock for dev/testing",
   "tipEnableChannel": "Enable or disable this channel",
   "tipDiscordToken": "Discord bot token (from Discord Developer Portal)",
-  "tipGuildIds": "List of Discord server IDs the bot is allowed to join",
+  "tipGuildIds": "Discord server ID list. How to find: open Discord channel in browser, URL format is discord.com/channels/ServerID/ChannelID, the first number is the Server ID (only enter Server ID, not Channel ID)",
   "tipPluralKit": "Enable PluralKit proxied message support",
   "tipMaxLines": "Max lines per message, auto-splits if exceeded",
   "tipSlackBot": "Slack Bot Token (from Slack App settings)",

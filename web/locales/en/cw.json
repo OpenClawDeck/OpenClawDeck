@@ -20,7 +20,7 @@
   "prepDesc": "Complete the following steps before proceeding",
   "telegramHelpUrl": "https://t.me/BotFather",
   "telegramPrep": [
-    "Open Telegram, search for @BotFather (or click the link below)",
+    "Open Telegram, search for @BotFather (or click the link above)",
     "Send /newbot, follow prompts for name and username",
     "Copy the generated Bot Token (format: digits:alphanumeric, e.g. 123456789:ABCdef-GHI)",
     "For groups: /setprivacy → Disable (turn off privacy mode)",
@@ -29,7 +29,7 @@
   ],
   "discordHelpUrl": "https://discord.com/developers/applications",
   "discordPrep": [
-    "Open Discord Developer Portal → New Application (or click the link below)",
+    "Open Discord Developer Portal → New Application (or click the link above)",
     "Bot → Add Bot → Reset Token → Copy Bot Token (note: this is NOT the OAuth2 Client Secret)",
     "⚠️ MUST enable Message Content Intent (otherwise Bot connects but reads empty message content)",
     "Also enable Server Members Intent (if you need member lists)",
@@ -40,7 +40,7 @@
   ],
   "slackHelpUrl": "https://api.slack.com/apps",
   "slackPrep": [
-    "Create App at api.slack.com/apps (From scratch, or click the link below)",
+    "Create App at api.slack.com/apps (From scratch, or click the link above)",
     "Socket Mode → Enable → Generate App-Level Token (xapp-..., requires connections:write scope)",
     "OAuth & Permissions → Add Bot Token Scopes → Install to Workspace → Copy Bot Token (xoxb-...)",
     "⚠️ Three different tokens: App Token (xapp-) for Socket Mode, Bot Token (xoxb-) for API calls, User Token (xoxp-) optional",

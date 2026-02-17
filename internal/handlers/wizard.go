@@ -355,11 +355,10 @@ func (h *WizardHandler) TestChannel(w http.ResponseWriter, r *http.Request) {
 	if openclaw.IsOpenClawInstalled() {
 		result, err := h.testChannelViaCLI(req)
 		if err != nil {
-			// CLI test failure is non-blocking, return basic validation
+			// CLI test failure means connection failed
 			web.OK(w, r, map[string]interface{}{
-				"status":  "ok",
-				"message": "token format valid (full connection test requires saving config and starting gateway)",
-				"warning": err.Error(),
+				"status":  "fail",
+				"message": err.Error(),
 			})
 			return
 		}
@@ -367,9 +366,10 @@ func (h *WizardHandler) TestChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// OpenClaw not installed, can only validate token format
 	web.OK(w, r, map[string]interface{}{
 		"status":  "ok",
-		"message": "token format valid",
+		"message": "token format valid (install OpenClaw for full connection test)",
 	})
 }
 

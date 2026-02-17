@@ -20,7 +20,7 @@
   "prepDesc": "请按以下步骤完成前置准备",
   "telegramHelpUrl": "https://t.me/BotFather",
   "telegramPrep": [
-    "打开 Telegram，搜索 @BotFather（或点击下方链接直达）",
+    "打开 Telegram，搜索 @BotFather（或点击上方链接直达）",
     "发送 /newbot，按提示设置名称和用户名",
     "复制生成的 Bot Token（格式：数字:字母数字混合，如 123456789:ABCdef-GHI）",
     "如需群组功能：/setprivacy → Disable（关闭隐私模式）",
@@ -29,7 +29,7 @@
   ],
   "discordHelpUrl": "https://discord.com/developers/applications",
   "discordPrep": [
-    "打开 Discord Developer Portal → New Application（或点击下方链接直达）",
+    "打开 Discord Developer Portal → New Application（或点击上方链接直达）",
     "Bot → Add Bot → Reset Token → 复制 Bot Token（注意：不是 OAuth2 Client Secret）",
     "⚠️ 必须开启 Message Content Intent（否则 Bot 能连接但读不到任何消息内容）",
     "同时开启 Server Members Intent（如需获取成员列表）",
@@ -40,7 +40,7 @@
   ],
   "slackHelpUrl": "https://api.slack.com/apps",
   "slackPrep": [
-    "在 api.slack.com/apps 创建 App（From scratch，或点击下方链接直达）",
+    "在 api.slack.com/apps 创建 App（From scratch，或点击上方链接直达）",
     "Socket Mode → 开启 → 生成 App-Level Token（xapp-...，需要 connections:write scope）",
     "OAuth & Permissions → 添加 Bot Token Scopes → Install to Workspace → 复制 Bot Token（xoxb-...）",
     "⚠️ 注意区分三种 Token：App Token (xapp-) 用于 Socket Mode，Bot Token (xoxb-) 用于 API 调用，User Token (xoxp-) 可选",

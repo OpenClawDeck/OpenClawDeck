@@ -435,7 +435,7 @@
   "tipVoiceProvider": "语音通话服务商：Twilio 和 Telnyx 为生产环境，Mock 用于开发测试",
   "tipEnableChannel": "启用或禁用此频道",
   "tipDiscordToken": "Discord 机器人令牌（从 Discord Developer Portal 获取）",
-  "tipGuildIds": "允许机器人加入的 Discord 服务器 ID 列表",
+  "tipGuildIds": "Discord 服务器 ID 列表。获取方式：浏览器打开 Discord 频道，URL 格式为 discord.com/channels/服务器ID/频道ID，第一串数字即为服务器 ID（只需填服务器 ID，不需要频道 ID）",
   "tipPluralKit": "启用 PluralKit 代理消息支持",
   "tipMaxLines": "单条消息最大行数，超出自动分割",
   "tipSlackBot": "Slack Bot Token（从 Slack App 设置获取）",
