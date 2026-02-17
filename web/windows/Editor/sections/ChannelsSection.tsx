@@ -88,7 +88,7 @@ const TIP_KEYS: Record<string, string> = {
 // ============================================================================
 // 组件
 // ============================================================================
-export const ChannelsSection: React.FC<SectionProps> = ({ config, setField, getField, deleteField, language }) => {
+export const ChannelsSection: React.FC<SectionProps> = ({ config, setField, getField, deleteField, language, save }) => {
   const es = useMemo(() => (getTranslation(language) as any).es || {}, [language]);
   const channels = getField(['channels']) || {};
   const channelKeys = Object.keys(channels);
@@ -229,15 +229,25 @@ export const ChannelsSection: React.FC<SectionProps> = ({ config, setField, getF
     const dmPolicy = getField(['channels', chId, 'dmPolicy']) || 'pairing';
     setRestarting(true);
     try {
+      // First save the configuration
+      if (save) {
+        const saved = await save();
+        if (!saved) {
+          console.error('Failed to save config before restart');
+        }
+      }
+      // Then restart the gateway
       await gatewayApi.restart();
-    } catch { /* ignore */ }
+    } catch (err) {
+      console.error('Failed to finish wizard:', err);
+    }
     setRestarting(false);
     if (dmPolicy === 'pairing') {
       setShowPairing(true);
     } else {
       resetWizard();
     }
-  }, [getField, resetWizard]);
+  }, [getField, resetWizard, save]);
 
   const handleApprovePairing = useCallback(async (chId: string) => {
     if (!pairingCode.trim()) return;

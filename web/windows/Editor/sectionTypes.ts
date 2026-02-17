@@ -8,4 +8,5 @@ export interface SectionProps {
   appendToArray: (path: string[], value: any) => void;
   removeFromArray: (path: string[], index: number) => void;
   language: Language;
+  save?: () => Promise<boolean>;
 }

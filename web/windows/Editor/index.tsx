@@ -135,7 +135,7 @@ const Editor: React.FC<EditorProps> = ({ language }) => {
 
   const renderSection = () => {
     if (!editor.config) return null;
-    const props = { config: editor.config, setField: editor.setField, getField: editor.getField, deleteField: editor.deleteField, appendToArray: editor.appendToArray, removeFromArray: editor.removeFromArray, language };
+    const props = { config: editor.config, setField: editor.setField, getField: editor.getField, deleteField: editor.deleteField, appendToArray: editor.appendToArray, removeFromArray: editor.removeFromArray, language, save: editor.save };
     switch (activeSection) {
       case 'models': return <ModelsSection {...props} />;
       case 'agents': return <AgentsSection {...props} />;
