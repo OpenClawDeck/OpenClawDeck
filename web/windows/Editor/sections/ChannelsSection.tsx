@@ -134,12 +134,12 @@ export const ChannelsSection: React.FC<SectionProps> = ({ config, setField, getF
         }
       }
       const res = await post<any>('/api/v1/setup/test-channel', { channel: chId, tokens: tokenMap });
-      if (res?.data?.status === 'ok') {
+      if (res?.status === 'ok') {
         setWizTestStatus('ok');
-        setWizTestMsg(res?.data?.message || '');
+        setWizTestMsg(res?.message || '');
       } else {
         setWizTestStatus('fail');
-        setWizTestMsg(res?.data?.message || res?.message || '');
+        setWizTestMsg(res?.message || '');
       }
     } catch (err: any) {
       setWizTestStatus('fail');
