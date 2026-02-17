@@ -157,6 +157,19 @@ func (h *SkillTranslationHandler) Translate(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Limit batch size to prevent overloading translation API
+	const maxBatchSize = 10
+	if len(toTranslate) > maxBatchSize {
+		// Release running flags for items we won't process this batch
+		h.mu.Lock()
+		for i := maxBatchSize; i < len(toTranslate); i++ {
+			jobKey := toTranslate[i].SkillKey + ":" + req.Lang
+			delete(h.running, jobKey)
+		}
+		h.mu.Unlock()
+		toTranslate = toTranslate[:maxBatchSize]
+	}
+
 	// Run translations in background
 	go h.translateBatch(req.Lang, toTranslate)
 

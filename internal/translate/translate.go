@@ -21,13 +21,16 @@ type Translator struct {
 	mu      sync.Mutex
 	lastReq time.Time
 	minGap  time.Duration
+	sem     chan struct{} // concurrency limiter
 }
 
 // New creates a Translator with sensible defaults.
+// Limits concurrent translations to 2 and enforces 1.5s gap between requests.
 func New() *Translator {
 	return &Translator{
 		client: &http.Client{Timeout: 20 * time.Second},
-		minGap: 300 * time.Millisecond,
+		minGap: 1500 * time.Millisecond, // 1.5s gap to protect API limits
+		sem:    make(chan struct{}, 2),  // max 2 concurrent translations
 	}
 }
 
@@ -48,6 +51,7 @@ func resolveMyMemoryLang(lang string) string {
 
 // Translate translates text from source language to target language.
 // Uses MyMemory first, falls back to Google Translate on failure.
+// Enforces concurrency limit and rate limiting to protect API quotas.
 func (t *Translator) Translate(ctx context.Context, text, source, target string) (string, error) {
 	if text == "" || target == "" {
 		return text, nil
@@ -59,11 +63,25 @@ func (t *Translator) Translate(ctx context.Context, text, source, target string)
 		return text, nil
 	}
 
-	// Rate-limit
+	// Acquire semaphore (concurrency limit)
+	select {
+	case t.sem <- struct{}{}:
+		defer func() { <-t.sem }()
+	case <-ctx.Done():
+		return text, ctx.Err()
+	}
+
+	// Rate-limit (enforce minimum gap between requests)
 	t.mu.Lock()
 	elapsed := time.Since(t.lastReq)
 	if elapsed < t.minGap {
-		time.Sleep(t.minGap - elapsed)
+		t.mu.Unlock()
+		select {
+		case <-time.After(t.minGap - elapsed):
+		case <-ctx.Done():
+			return text, ctx.Err()
+		}
+		t.mu.Lock()
 	}
 	t.lastReq = time.Now()
 	t.mu.Unlock()

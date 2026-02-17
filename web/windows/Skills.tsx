@@ -491,21 +491,41 @@ const Skills: React.FC<SkillsProps> = ({ language }) => {
     localStorage.setItem('skills-auto-translate', String(autoTranslate));
   }, [autoTranslate]);
 
-  // 自动翻译本地技能说明（非英文时且开启自动翻译）
+  // 合并翻译请求：本地技能 + 市场技能，添加防抖避免频繁请求
   useEffect(() => {
-    if (!autoTranslate || language === 'en' || skills.length === 0) return;
-    translateBatch(language, skills.map(s => ({ skill_key: s.skillKey, name: s.name || '', description: s.description || '' })));
-  }, [autoTranslate, language, skills, translateBatch]);
-
-  // 自动翻译 ClawHub 市场技能说明（开启自动翻译时）
-  useEffect(() => {
-    if (!autoTranslate || language === 'en' || marketResults.length === 0) return;
-    translateBatch(language, marketResults.map((item: any) => ({
-      skill_key: `market:${item.slug || item.name || ''}`,
-      name: item.displayName || item.name || '',
-      description: item.summary || item.description || '',
-    })));
-  }, [autoTranslate, language, marketResults, translateBatch]);
+    if (!autoTranslate || language === 'en') return;
+    
+    // 收集所有需要翻译的项
+    const allItems: { skill_key: string; name: string; description: string }[] = [];
+    
+    // 本地技能
+    for (const s of skills) {
+      allItems.push({ skill_key: s.skillKey, name: s.name || '', description: s.description || '' });
+    }
+    
+    // 市场技能
+    for (const item of marketResults) {
+      allItems.push({
+        skill_key: `market:${(item as any).slug || (item as any).name || ''}`,
+        name: (item as any).displayName || (item as any).name || '',
+        description: (item as any).summary || (item as any).description || '',
+      });
+    }
+    
+    if (allItems.length === 0) return;
+    
+    // 防抖：500ms 后执行，避免快速连续触发
+    const timer = setTimeout(() => {
+      // 每次最多请求 15 个，分批处理
+      const batchSize = 15;
+      const batch = allItems.slice(0, batchSize);
+      if (batch.length > 0) {
+        translateBatch(language, batch);
+      }
+    }, 500);
+    
+    return () => clearTimeout(timer);
+  }, [autoTranslate, language, skills, marketResults, translateBatch]);
 
   // 复制技能安装信息到剪贴板
   const handleCopyInstall = useCallback((skill: SkillStatus) => {
