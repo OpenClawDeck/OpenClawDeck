@@ -536,7 +536,8 @@
     "showTranslation": "Show translation",
     "autoTranslate": "Auto Translate",
     "autoTranslateOn": "Auto translate enabled",
-    "autoTranslateOff": "Auto translate disabled"
+    "autoTranslateOff": "Auto translate disabled",
+    "refreshTranslation": "Refresh translations"
   },
   "sch": {
     "upcoming": "Scheduled Tasks",

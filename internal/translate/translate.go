@@ -86,19 +86,44 @@ func (t *Translator) Translate(ctx context.Context, text, source, target string)
 	t.lastReq = time.Now()
 	t.mu.Unlock()
 
-	// Engine 1: MyMemory (fast, China-friendly, no API key)
-	result, err := t.myMemoryTranslate(ctx, text, source, target)
-	if err == nil && result != "" {
-		return result, nil
+	// Engine 1: MyMemory with exponential backoff retry
+	var result string
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			// Exponential backoff: 1s, 2s, 4s
+			backoff := time.Duration(1<<attempt) * time.Second
+			select {
+			case <-time.After(backoff):
+			case <-ctx.Done():
+				return text, ctx.Err()
+			}
+		}
+		result, err = t.myMemoryTranslate(ctx, text, source, target)
+		if err == nil && result != "" {
+			return result, nil
+		}
+		logger.Log.Debug().Err(err).Int("attempt", attempt+1).Str("engine", "mymemory").Msg("translation attempt failed")
 	}
-	logger.Log.Debug().Err(err).Str("engine", "mymemory").Str("text", truncate(text, 40)).Msg("primary engine failed, trying fallback")
 
-	// Engine 2: Google Translate free endpoint (fallback)
-	result, err = t.googleTranslate(ctx, text, source, target)
-	if err == nil && result != "" {
-		return result, nil
+	// Engine 2: Google Translate fallback with retry
+	for attempt := 0; attempt < 2; attempt++ {
+		if attempt > 0 {
+			backoff := time.Duration(1<<attempt) * time.Second
+			select {
+			case <-time.After(backoff):
+			case <-ctx.Done():
+				return text, ctx.Err()
+			}
+		}
+		result, err = t.googleTranslate(ctx, text, source, target)
+		if err == nil && result != "" {
+			return result, nil
+		}
+		logger.Log.Debug().Err(err).Int("attempt", attempt+1).Str("engine", "google").Msg("fallback attempt failed")
 	}
-	logger.Log.Warn().Err(err).Str("target", target).Str("text", truncate(text, 60)).Msg("all translation engines failed")
+
+	logger.Log.Warn().Err(err).Str("target", target).Str("text", truncate(text, 60)).Msg("all translation engines failed after retries")
 	return text, err
 }
 

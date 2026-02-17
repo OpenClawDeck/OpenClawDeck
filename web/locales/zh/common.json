@@ -536,7 +536,8 @@
     "showTranslation": "显示翻译",
     "autoTranslate": "自动翻译",
     "autoTranslateOn": "自动翻译已开启",
-    "autoTranslateOff": "自动翻译已关闭"
+    "autoTranslateOff": "自动翻译已关闭",
+    "refreshTranslation": "刷新翻译"
   },
   "sch": {
     "upcoming": "定时任务",

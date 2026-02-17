@@ -717,18 +717,53 @@ const Skills: React.FC<SkillsProps> = ({ language }) => {
                 <input className="w-full h-9 pl-9 pr-4 bg-white dark:bg-[#1a1c22] border border-slate-200 dark:border-white/10 rounded-lg text-xs text-slate-800 dark:text-white placeholder:text-slate-400 focus:ring-1 focus:ring-primary outline-none"
                   placeholder={sk.search} value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
               </div>
-              {/* 自动翻译开关 */}
+              {/* 自动翻译开关 + 进度 + 刷新 */}
               {language !== 'en' && (
-                <button onClick={() => setAutoTranslate(!autoTranslate)} 
-                  className={`h-9 px-3 flex items-center gap-1.5 border rounded-lg text-[11px] font-bold shrink-0 transition-all ${
-                    autoTranslate 
-                      ? 'bg-primary/10 dark:bg-primary/20 border-primary/30 text-primary hover:bg-primary/20' 
-                      : 'bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/30 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-500/20'
-                  }`}
-                  title={autoTranslate ? sk.autoTranslateOn : sk.autoTranslateOff}>
-                  <span className="material-symbols-outlined text-[16px]">{autoTranslate ? 'translate' : 'translate_off'}</span>
-                  {sk.autoTranslate}
-                </button>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button onClick={() => setAutoTranslate(!autoTranslate)} 
+                    className={`h-9 px-3 flex items-center gap-1.5 border rounded-lg text-[11px] font-bold transition-all ${
+                      autoTranslate 
+                        ? 'bg-primary/10 dark:bg-primary/20 border-primary/30 text-primary hover:bg-primary/20' 
+                        : 'bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/30 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-500/20'
+                    }`}
+                    title={autoTranslate ? sk.autoTranslateOn : sk.autoTranslateOff}>
+                    <span className="material-symbols-outlined text-[16px]">{autoTranslate ? 'translate' : 'translate_off'}</span>
+                    {sk.autoTranslate}
+                  </button>
+                  {/* 翻译进度指示 */}
+                  {autoTranslate && (() => {
+                    const total = skills.length + marketResults.length;
+                    const translating = Object.values(translations).filter(t => t.status === 'translating').length;
+                    const cached = Object.values(translations).filter(t => t.status === 'cached').length;
+                    if (translating > 0) {
+                      return (
+                        <span className="h-9 px-2 flex items-center gap-1 text-[10px] text-primary bg-primary/5 border border-primary/20 rounded-lg">
+                          <span className="material-symbols-outlined text-[14px] animate-spin">progress_activity</span>
+                          {translating}/{total}
+                        </span>
+                      );
+                    }
+                    if (cached > 0 && cached < total) {
+                      return (
+                        <span className="h-9 px-2 flex items-center gap-1 text-[10px] text-slate-500 dark:text-white/50 bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg">
+                          {cached}/{total}
+                        </span>
+                      );
+                    }
+                    return null;
+                  })()}
+                  {/* 刷新翻译按钮 */}
+                  {autoTranslate && (
+                    <button 
+                      onClick={() => {
+                        setTranslations({}); // 清空缓存，触发重新翻译
+                      }}
+                      className="h-9 w-9 flex items-center justify-center bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 border border-slate-200 dark:border-white/10 rounded-lg"
+                      title={sk.refreshTranslation || 'Refresh translations'}>
+                      <span className="material-symbols-outlined text-[16px] text-slate-500">refresh</span>
+                    </button>
+                  )}
+                </div>
               )}
               <button onClick={() => setGroupView(!groupView)} className="h-9 w-9 flex items-center justify-center bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 border border-slate-200 dark:border-white/10 rounded-lg shrink-0" title={groupView ? 'Flat view' : 'Grouped view'}>
                 <span className="material-symbols-outlined text-[16px] text-slate-500">{groupView ? 'view_list' : 'folder'}</span>
