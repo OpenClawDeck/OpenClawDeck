@@ -284,14 +284,15 @@ export const ArrayField: React.FC<ArrayFieldProps> = ({ label, desc, tooltip, va
 };
 
 // ============================================================================
-// DiscordGuildArrayField — Discord 服务器ID数组（支持链接自动提取）
+// DiscordGuildField — Discord 服务器配置（对象格式，支持链接自动提取）
+// OpenClaw expects: guilds: Record<string, DiscordGuildEntry>
 // ============================================================================
-interface DiscordGuildArrayFieldProps {
+interface DiscordGuildFieldProps {
   label: string;
   desc?: string;
   tooltip?: string;
-  value: string[];
-  onChange: (v: string[]) => void;
+  value: Record<string, any>;  // { "guildId": { ...config }, ... }
+  onChange: (v: Record<string, any>) => void;
   placeholder?: string;
   linkHint?: string;
 }
@@ -311,10 +312,13 @@ function extractDiscordGuildId(input: string): string {
   return trimmed;
 }
 
-export const DiscordGuildArrayField: React.FC<DiscordGuildArrayFieldProps> = ({ label, desc, tooltip, value, onChange, placeholder, linkHint }) => {
+export const DiscordGuildField: React.FC<DiscordGuildFieldProps> = ({ label, desc, tooltip, value, onChange, placeholder, linkHint }) => {
   const [input, setInput] = useState('');
   const [extracted, setExtracted] = useState<string | null>(null);
-  const items = Array.isArray(value) ? value : [];
+  
+  // Convert object to array of guild IDs for display
+  const guildsObj = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {};
+  const guildIds = Object.keys(guildsObj);
 
   // Auto-extract guild ID when input changes
   useEffect(() => {
@@ -332,20 +336,27 @@ export const DiscordGuildArrayField: React.FC<DiscordGuildArrayFieldProps> = ({ 
 
   const add = useCallback(() => {
     const v = extracted || input.trim();
-    if (v && !items.includes(v)) {
-      onChange([...items, v]);
+    if (v && !guildIds.includes(v)) {
+      // Add guild as object entry with empty config (OpenClaw format)
+      onChange({ ...guildsObj, [v]: {} });
       setInput('');
       setExtracted(null);
     }
-  }, [input, extracted, items, onChange]);
+  }, [input, extracted, guildIds, guildsObj, onChange]);
+
+  const remove = useCallback((guildId: string) => {
+    const newObj = { ...guildsObj };
+    delete newObj[guildId];
+    onChange(newObj);
+  }, [guildsObj, onChange]);
 
   return (
     <ConfigField label={label} desc={desc} tooltip={tooltip} inline={false}>
       <div className="flex flex-wrap gap-1.5 min-h-[28px]">
-        {items.map((item, i) => (
-          <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary/10 text-primary text-[10px] md:text-[11px] rounded-md font-mono">
-            {item}
-            <button onClick={() => onChange(items.filter((_, j) => j !== i))} className="hover:text-red-500 transition-colors">
+        {guildIds.map((guildId) => (
+          <span key={guildId} className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary/10 text-primary text-[10px] md:text-[11px] rounded-md font-mono">
+            {guildId}
+            <button onClick={() => remove(guildId)} className="hover:text-red-500 transition-colors">
               <span className="material-symbols-outlined text-[12px]">close</span>
             </button>
           </span>

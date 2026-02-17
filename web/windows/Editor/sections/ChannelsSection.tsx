@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { SectionProps } from '../sectionTypes';
-import { ConfigSection, TextField, PasswordField, SelectField, SwitchField, ArrayField, NumberField, EmptyState, DiscordGuildArrayField } from '../fields';
+import { ConfigSection, TextField, PasswordField, SelectField, SwitchField, ArrayField, NumberField, EmptyState, DiscordGuildField } from '../fields';
 import { getTranslation } from '../../../locales';
 import { gwApi, gatewayApi, pairingApi } from '../../../services/api';
 import { post } from '../../../services/request';
@@ -304,7 +304,7 @@ export const ChannelsSection: React.FC<SectionProps> = ({ config, setField, getF
             <PasswordField label="Token" value={g(['token']) || ''} onChange={v => s(['token'], v)} placeholder="Bot token..." tooltip={es.tipDiscordToken} />
             <SelectField label={es.dmPolicy} value={g(['dm', 'policy']) || 'pairing'} onChange={v => s(['dm', 'policy'], v)} options={dmPolicy(es)} tooltip={tip('dmPolicy')} />
             <SelectField label={es.groupPolicy} value={g(['groupPolicy']) || 'allowlist'} onChange={v => s(['groupPolicy'], v)} options={groupPolicy(es)} tooltip={tip('groupPolicy')} />
-            <DiscordGuildArrayField label={es.guildIds} value={(g(['guilds']) || []).map(String)} onChange={v => s(['guilds'], v)} placeholder={es.guildIdPlaceholder || 'guild_id or channel URL'} tooltip={es.tipGuildIds} linkHint={es.guildIdLinkHint} />
+            <DiscordGuildField label={es.guildIds} value={g(['guilds']) || {}} onChange={v => s(['guilds'], v)} placeholder={es.guildIdPlaceholder || 'guild_id or channel URL'} tooltip={es.tipGuildIds} linkHint={es.guildIdLinkHint} />
             <SwitchField label="PluralKit" value={g(['pluralkit', 'enabled']) === true} onChange={v => s(['pluralkit', 'enabled'], v)} tooltip={es.tipPluralKit} />
             <NumberField label={es.maxLinesMsg} value={g(['maxLinesPerMessage'])} onChange={v => s(['maxLinesPerMessage'], v)} placeholder="40" tooltip={es.tipMaxLines} />
           </>
