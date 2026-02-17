@@ -108,6 +108,7 @@ export const ChannelsSection: React.FC<SectionProps> = ({ config, setField, getF
   // Wizard test connection
   const [wizTestStatus, setWizTestStatus] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle');
   const [wizTestMsg, setWizTestMsg] = useState('');
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   const handleWizardTest = useCallback(async (chId: string) => {
     setWizTestStatus('testing');
@@ -501,7 +502,7 @@ export const ChannelsSection: React.FC<SectionProps> = ({ config, setField, getF
                   <button onClick={() => setLogoutChannel(logoutChannel === ch ? null : ch)} className="text-slate-400 hover:text-amber-500 transition-colors" title={es.chLogout}>
                     <span className="material-symbols-outlined text-[14px]">logout</span>
                   </button>
-                  <button onClick={() => deleteField(['channels', ch])} className="text-slate-400 hover:text-red-500 transition-colors">
+                  <button onClick={() => setDeleteConfirm(ch)} className="text-slate-400 hover:text-red-500 transition-colors">
                     <span className="material-symbols-outlined text-[14px]">delete</span>
                   </button>
                 </div>
@@ -907,6 +908,33 @@ export const ChannelsSection: React.FC<SectionProps> = ({ config, setField, getF
           </div>
         );
       })()}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setDeleteConfirm(null)}>
+          <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 max-w-sm w-full mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-500/20 flex items-center justify-center">
+                <span className="material-symbols-outlined text-red-500 text-xl">warning</span>
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-800 dark:text-white">{es.deleteConfirmTitle || '确认删除'}</h3>
+                <p className="text-xs text-slate-500 dark:text-white/50">{es.deleteConfirmDesc || `确定要删除频道 ${deleteConfirm} 吗？`}</p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setDeleteConfirm(null)}
+                className="px-4 py-2 text-xs font-medium text-slate-600 dark:text-white/60 hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg transition-colors">
+                {es.cancel || '取消'}
+              </button>
+              <button onClick={() => { deleteField(['channels', deleteConfirm]); setDeleteConfirm(null); }}
+                className="px-4 py-2 text-xs font-medium bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors">
+                {es.delete || '删除'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
