@@ -292,7 +292,7 @@ export const ChannelsSection: React.FC<SectionProps> = ({ config, setField, getF
         {ch === 'whatsapp' && (
           <>
             <SelectField label={es.dmPolicy} value={g(['dmPolicy']) || 'pairing'} onChange={v => s(['dmPolicy'], v)} options={dmPolicy(es)} tooltip={tip('dmPolicy')} />
-            <SelectField label={es.selfChatMode} value={g(['selfChatMode']) || 'off'} onChange={v => s(['selfChatMode'], v)} options={[{ value: 'off', label: es.optOff }, { value: 'on', label: es.optOn }]} tooltip={es.tipSelfChat} />
+            <SwitchField label={es.selfChatMode} value={g(['selfChatMode']) === true} onChange={v => s(['selfChatMode'], v)} tooltip={es.tipSelfChat} />
             <NumberField label={es.chDebounceMs} value={g(['debounceMs'])} onChange={v => s(['debounceMs'], v)} placeholder="1500" tooltip={es.tipDebounce} />
             <ArrayField label={es.allowFrom} value={g(['allowFrom']) || []} onChange={v => s(['allowFrom'], v)} placeholder="+8613800138000" tooltip={tip('allowFrom')} />
           </>
