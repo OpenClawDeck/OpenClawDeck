@@ -271,7 +271,10 @@ const UsageWizard: React.FC<UsageWizardProps> = ({ language, onOpenEditor }) => 
       settle(gwApi.agents()),
       settle(gwApi.channels()),
     ]);
-    if (cfgData) setConfig(cfgData);
+    if (cfgData) {
+      const cfg = cfgData.config || cfgData.parsed || cfgData;
+      setConfig(cfg);
+    }
     const agentsList = Array.isArray(agentsData) ? agentsData : agentsData?.agents || [];
     setDefaultAgentId(agentsData?.defaultId || agentsList[0]?.id || null);
     const raw = channelsData?.channels ?? channelsData?.list ?? channelsData;
