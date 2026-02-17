@@ -798,3 +798,66 @@ func joinLines(lines []string) string {
 	}
 	return result
 }
+
+// ---------- Pairing Management ----------
+
+// ListPairingRequests lists pending pairing requests for a channel.
+// GET /api/v1/pairing/list?channel=telegram
+func (h *WizardHandler) ListPairingRequests(w http.ResponseWriter, r *http.Request) {
+	channel := r.URL.Query().Get("channel")
+	if channel == "" {
+		web.Fail(w, r, "INVALID_PARAM", "channel is required", http.StatusBadRequest)
+		return
+	}
+
+	if !openclaw.IsOpenClawInstalled() {
+		web.Fail(w, r, "OPENCLAW_NOT_INSTALLED", "OpenClaw is not installed", http.StatusServiceUnavailable)
+		return
+	}
+
+	result, err := openclaw.PairingList(channel)
+	if err != nil {
+		web.OK(w, r, map[string]interface{}{
+			"channel":  channel,
+			"requests": []interface{}{},
+			"error":    err.Error(),
+		})
+		return
+	}
+
+	web.OK(w, r, result)
+}
+
+// ApprovePairingRequest approves a pairing code.
+// POST /api/v1/pairing/approve
+func (h *WizardHandler) ApprovePairingRequest(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Channel string `json:"channel"`
+		Code    string `json:"code"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		web.FailErr(w, r, web.ErrInvalidBody)
+		return
+	}
+
+	if req.Channel == "" || req.Code == "" {
+		web.Fail(w, r, "INVALID_PARAM", "channel and code are required", http.StatusBadRequest)
+		return
+	}
+
+	if !openclaw.IsOpenClawInstalled() {
+		web.Fail(w, r, "OPENCLAW_NOT_INSTALLED", "OpenClaw is not installed", http.StatusServiceUnavailable)
+		return
+	}
+
+	output, err := openclaw.PairingApprove(req.Channel, req.Code)
+	if err != nil {
+		web.Fail(w, r, "PAIRING_APPROVE_FAILED", err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	web.OK(w, r, map[string]string{
+		"message": output,
+		"status":  "approved",
+	})
+}

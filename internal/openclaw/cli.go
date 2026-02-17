@@ -208,3 +208,40 @@ func RunCLIWithTimeout(args ...string) (string, error) {
 func IsWindows() bool {
 	return runtime.GOOS == "windows"
 }
+
+// PairingRequest 配对请求
+type PairingRequest struct {
+	ID         string            `json:"id"`
+	Code       string            `json:"code"`
+	CreatedAt  string            `json:"createdAt"`
+	LastSeenAt string            `json:"lastSeenAt"`
+	Meta       map[string]string `json:"meta,omitempty"`
+}
+
+// PairingListResult 配对列表结果
+type PairingListResult struct {
+	Channel  string           `json:"channel"`
+	Requests []PairingRequest `json:"requests"`
+}
+
+// PairingList 列出指定频道的待处理配对请求
+func PairingList(channel string) (*PairingListResult, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out, err := RunCLI(ctx, "pairing", "list", channel, "--json")
+	if err != nil {
+		return nil, err
+	}
+	var result PairingListResult
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		return nil, fmt.Errorf("解析配对列表失败: %w", err)
+	}
+	return &result, nil
+}
+
+// PairingApprove 批准配对码
+func PairingApprove(channel, code string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return RunCLI(ctx, "pairing", "approve", channel, code)
+}

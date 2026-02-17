@@ -142,6 +142,12 @@ export const settingsApi = {
   updateGateway: (data: any) => put('/api/v1/settings/gateway', data),
 };
 
+// ==================== 配对管理 ====================
+export const pairingApi = {
+  list: (channel: string) => get<{ channel: string; requests: any[]; error?: string }>(`/api/v1/pairing/list?channel=${channel}`),
+  approve: (channel: string, code: string) => post<{ message: string; status: string }>('/api/v1/pairing/approve', { channel, code }),
+};
+
 // ==================== 通知配置 ====================
 export const notifyApi = {
   getConfig: () => get<any>('/api/v1/notify/config'),

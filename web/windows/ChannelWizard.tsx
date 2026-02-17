@@ -4,7 +4,7 @@ import StepWizard, { TipBox, StepCard, WizardStep } from '../components/StepWiza
 import { Language } from '../types';
 import { getTranslation } from '../locales';
 import { post } from '../services/request';
-import { gatewayApi } from '../services/api';
+import { gatewayApi, pairingApi } from '../services/api';
 
 interface Props { language: Language; }
 
@@ -60,6 +60,9 @@ const ChannelWizard: React.FC<Props> = ({ language }) => {
   const [saving, setSaving] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle');
+  const [pairingCode, setPairingCode] = useState('');
+  const [pairingStatus, setPairingStatus] = useState<'idle' | 'approving' | 'approved' | 'failed'>('idle');
+  const [showPairingStep, setShowPairingStep] = useState(false);
 
   const channel = CHANNELS.find(c => c.id === selectedChannel);
 
@@ -69,6 +72,7 @@ const ChannelWizard: React.FC<Props> = ({ language }) => {
     { id: 'credential', icon: 'key', title: cw.stepCredential },
     { id: 'access', icon: 'shield', title: cw.stepAccess },
     { id: 'confirm', icon: 'check_circle', title: cw.stepConfirm },
+    ...(showPairingStep ? [{ id: 'pairing', icon: 'handshake', title: cw.pairingGuideTitle }] : []),
   ];
 
   const canNext = useMemo(() => {
@@ -141,10 +145,27 @@ const ChannelWizard: React.FC<Props> = ({ language }) => {
       setSaving(false);
       setRestarting(true);
       await gatewayApi.restart();
+      setRestarting(false);
+      // If pairing mode, show pairing step
+      if (dmPolicy === 'pairing') {
+        setShowPairingStep(true);
+        setStep(5); // Go to pairing step
+      }
     } catch { /* toast error */ }
     setSaving(false);
     setRestarting(false);
   }, [selectedChannel, tokens, dmPolicy, allowFrom, requireMention]);
+
+  const handleApprovePairing = useCallback(async () => {
+    if (!pairingCode.trim() || !selectedChannel) return;
+    setPairingStatus('approving');
+    try {
+      await pairingApi.approve(selectedChannel, pairingCode.trim());
+      setPairingStatus('approved');
+    } catch {
+      setPairingStatus('failed');
+    }
+  }, [selectedChannel, pairingCode]);
 
   const dmPolicies: { id: DmPolicy; icon: string }[] = [
     { id: 'pairing', icon: 'handshake' },
@@ -326,6 +347,62 @@ const ChannelWizard: React.FC<Props> = ({ language }) => {
               <div className="flex items-center gap-3 p-4 rounded-xl bg-primary/10 border border-primary/20">
                 <span className="material-symbols-outlined text-primary animate-spin">progress_activity</span>
                 <span className="text-sm text-primary font-medium">{cw.restartingGateway}</span>
+              </div>
+            )}
+          </div>
+        </StepCard>
+      )}
+
+      {/* Step 6: Pairing (only shown after finish if dmPolicy is pairing) */}
+      {step === 5 && showPairingStep && (
+        <StepCard title={cw.pairingGuideTitle} icon="handshake">
+          <div className="space-y-4">
+            <p className="text-sm text-slate-600 dark:text-white/70">{cw.pairingGuideDesc}</p>
+            
+            <div className="space-y-2">
+              {[cw.pairingStep1, cw.pairingStep2, cw.pairingStep3].map((s: string, i: number) => (
+                <div key={i} className="flex items-start gap-3 p-3 rounded-xl bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/5">
+                  <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center">
+                    {i + 1}
+                  </span>
+                  <p className="text-xs text-slate-700 dark:text-white/70 leading-relaxed">{s}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="pt-2">
+              <label className="text-xs text-slate-500 dark:text-white/50 mb-1.5 block">{cw.pairingCodeLabel}</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={pairingCode}
+                  onChange={e => setPairingCode(e.target.value.toUpperCase())}
+                  placeholder={cw.pairingCodePlaceholder}
+                  className="flex-1 px-3 py-2.5 text-xs bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/50 font-mono uppercase"
+                  disabled={pairingStatus === 'approving' || pairingStatus === 'approved'}
+                />
+                <button
+                  onClick={handleApprovePairing}
+                  disabled={!pairingCode.trim() || pairingStatus === 'approving' || pairingStatus === 'approved'}
+                  className="px-4 py-2.5 rounded-xl text-xs font-medium bg-primary text-white hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2"
+                >
+                  {pairingStatus === 'approving' && <span className="material-symbols-outlined text-sm animate-spin">progress_activity</span>}
+                  {pairingStatus === 'approving' ? cw.pairingApproving : cw.pairingApprove}
+                </button>
+              </div>
+            </div>
+
+            {pairingStatus === 'approved' && (
+              <div className="flex items-center gap-2 p-3 rounded-xl bg-green-50 dark:bg-green-500/10 border border-green-200 dark:border-green-500/20 text-green-700 dark:text-green-400">
+                <span className="material-symbols-outlined text-lg">check_circle</span>
+                <span className="text-sm font-medium">{cw.pairingApproved}</span>
+              </div>
+            )}
+
+            {pairingStatus === 'failed' && (
+              <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 text-red-700 dark:text-red-400">
+                <span className="material-symbols-outlined text-lg">error</span>
+                <span className="text-sm font-medium">{cw.pairingFailed}</span>
               </div>
             )}
           </div>

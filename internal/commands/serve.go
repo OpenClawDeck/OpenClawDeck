@@ -378,6 +378,10 @@ func RunServe(args []string) int {
 	router.POST("/api/v1/config/model-wizard", wizardHandler.SaveModel)
 	router.POST("/api/v1/config/channel-wizard", wizardHandler.SaveChannel)
 
+	// 配对管理
+	router.GET("/api/v1/pairing/list", wizardHandler.ListPairingRequests)
+	router.POST("/api/v1/pairing/approve", wizardHandler.ApprovePairingRequest)
+
 	// 监控配置
 	router.GET("/api/v1/monitor/config", monConfigHandler.GetConfig)
 	router.PUT("/api/v1/monitor/config", monConfigHandler.UpdateConfig)
