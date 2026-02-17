@@ -802,6 +802,33 @@ export const ChannelsSection: React.FC<SectionProps> = ({ config, setField, getF
                   <div className="pt-3 space-y-2">
                     {renderChannelFields(chId, cfg)}
                   </div>
+                  {/* WhatsApp QR Login */}
+                  {chId === 'whatsapp' && (
+                    <div className="mt-3 pt-3 border-t border-slate-100 dark:border-white/[0.04]">
+                      <div className="flex flex-col gap-3">
+                        <div className="flex items-center gap-2">
+                          <span className="material-symbols-outlined text-primary text-[18px]">qr_code_2</span>
+                          <span className="text-[11px] font-bold text-slate-700 dark:text-white/80">{cw.whatsappLogin || 'WhatsApp Web 登录'}</span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 dark:text-white/50">{cw.whatsappLoginDesc || '点击下方按钮生成二维码，然后用手机 WhatsApp 扫码登录'}</p>
+                        <button onClick={handleWebLogin} disabled={webLoginBusy}
+                          className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-[11px] font-bold bg-green-500 hover:bg-green-600 text-white transition-all disabled:opacity-50">
+                          <span className={`material-symbols-outlined text-[16px] ${webLoginBusy ? 'animate-spin' : ''}`}>
+                            {webLoginBusy ? 'progress_activity' : 'qr_code_2'}
+                          </span>
+                          {webLoginBusy ? (cw.generating || '生成中...') : (cw.generateQR || '生成二维码')}
+                        </button>
+                        {webLoginResult && (
+                          <div className={`px-3 py-2.5 rounded-lg text-[10px] ${webLoginResult.ok ? 'bg-green-50 dark:bg-green-500/10 text-green-600 dark:text-green-400 border border-green-200 dark:border-green-500/20' : 'bg-red-50 dark:bg-red-500/10 text-red-500 border border-red-200 dark:border-red-500/20'}`}>
+                            <p className="font-bold">{webLoginResult.text}</p>
+                            {webLoginResult.qr && (
+                              <pre className="mt-2 p-2 bg-white dark:bg-black/20 rounded text-[9px] font-mono whitespace-pre overflow-x-auto">{webLoginResult.qr}</pre>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                   {/* Test connection */}
                   {chId !== 'whatsapp' && (
                     <div className="mt-3 pt-3 border-t border-slate-100 dark:border-white/[0.04]">
