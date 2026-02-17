@@ -351,11 +351,22 @@ func (h *WizardHandler) TestChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// if openclaw is installed, try testing via CLI
-	if openclaw.IsOpenClawInstalled() {
-		result, err := h.testChannelViaCLI(req)
+	// Try real API validation for supported channels
+	switch req.Channel {
+	case "discord":
+		result, err := h.testDiscordToken(req.Tokens["token"])
 		if err != nil {
-			// CLI test failure means connection failed
+			web.OK(w, r, map[string]interface{}{
+				"status":  "fail",
+				"message": err.Error(),
+			})
+			return
+		}
+		web.OK(w, r, result)
+		return
+	case "telegram":
+		result, err := h.testTelegramToken(req.Tokens["botToken"])
+		if err != nil {
 			web.OK(w, r, map[string]interface{}{
 				"status":  "fail",
 				"message": err.Error(),
@@ -366,10 +377,24 @@ func (h *WizardHandler) TestChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// OpenClaw not installed, can only validate token format
+	// For other channels, try CLI if available
+	if openclaw.IsOpenClawInstalled() {
+		result, err := h.testChannelViaCLI(req)
+		if err != nil {
+			web.OK(w, r, map[string]interface{}{
+				"status":  "fail",
+				"message": err.Error(),
+			})
+			return
+		}
+		web.OK(w, r, result)
+		return
+	}
+
+	// Fallback: token format valid but no real test
 	web.OK(w, r, map[string]interface{}{
 		"status":  "ok",
-		"message": "token format valid (install OpenClaw for full connection test)",
+		"message": "token format valid (real connection test not available for this channel)",
 	})
 }
 
@@ -490,6 +515,118 @@ func (h *WizardHandler) validateChannelTokens(channel string, tokens map[string]
 		// unknown channel types also pass basic validation
 	}
 	return nil
+}
+
+// testDiscordToken validates Discord bot token by calling Discord API.
+func (h *WizardHandler) testDiscordToken(token string) (map[string]interface{}, error) {
+	if token == "" {
+		return nil, fmt.Errorf("Discord Bot Token is required")
+	}
+
+	// Normalize token (remove "Bot " prefix if present)
+	normalizedToken := strings.TrimSpace(token)
+	if strings.HasPrefix(strings.ToLower(normalizedToken), "bot ") {
+		normalizedToken = strings.TrimSpace(normalizedToken[4:])
+	}
+
+	// Call Discord API to validate token
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://discord.com/api/v10/users/@me", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bot "+normalizedToken)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("Discord API request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 401 {
+		return nil, fmt.Errorf("Invalid Discord Bot Token (401 Unauthorized)")
+	}
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("Discord API returned status %d", resp.StatusCode)
+	}
+
+	// Parse response to get bot info
+	var botInfo struct {
+		ID       string `json:"id"`
+		Username string `json:"username"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&botInfo); err != nil {
+		return nil, fmt.Errorf("failed to parse Discord response: %v", err)
+	}
+
+	return map[string]interface{}{
+		"status":  "ok",
+		"message": fmt.Sprintf("Connected to Discord bot: %s (ID: %s)", botInfo.Username, botInfo.ID),
+		"bot": map[string]string{
+			"id":       botInfo.ID,
+			"username": botInfo.Username,
+		},
+	}, nil
+}
+
+// testTelegramToken validates Telegram bot token by calling Telegram API.
+func (h *WizardHandler) testTelegramToken(token string) (map[string]interface{}, error) {
+	if token == "" {
+		return nil, fmt.Errorf("Telegram Bot Token is required")
+	}
+
+	// Call Telegram API to validate token
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/getMe", token)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("Telegram API request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 401 {
+		return nil, fmt.Errorf("Invalid Telegram Bot Token (401 Unauthorized)")
+	}
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("Telegram API returned status %d", resp.StatusCode)
+	}
+
+	// Parse response
+	var telegramResp struct {
+		OK     bool `json:"ok"`
+		Result struct {
+			ID        int64  `json:"id"`
+			FirstName string `json:"first_name"`
+			Username  string `json:"username"`
+		} `json:"result"`
+		Description string `json:"description"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&telegramResp); err != nil {
+		return nil, fmt.Errorf("failed to parse Telegram response: %v", err)
+	}
+
+	if !telegramResp.OK {
+		return nil, fmt.Errorf("Telegram API error: %s", telegramResp.Description)
+	}
+
+	return map[string]interface{}{
+		"status":  "ok",
+		"message": fmt.Sprintf("Connected to Telegram bot: @%s (%s)", telegramResp.Result.Username, telegramResp.Result.FirstName),
+		"bot": map[string]interface{}{
+			"id":       telegramResp.Result.ID,
+			"username": telegramResp.Result.Username,
+			"name":     telegramResp.Result.FirstName,
+		},
+	}, nil
 }
 
 // testChannelViaCLI tests channel via openclaw CLI.
