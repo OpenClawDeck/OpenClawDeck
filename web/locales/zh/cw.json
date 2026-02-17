@@ -276,6 +276,7 @@
   "howToGet": "如何获取？",
   "restartReminder": "💡 配置完成后请重启网关：openclaw gateway restart",
   "restartCmd": "openclaw gateway restart",
+  "restartingGateway": "正在重启网关，请稍候...",
   "noPrepNeeded": "此频道无需额外准备，可直接进入下一步",
   "prepDone": "准备完成"
 }

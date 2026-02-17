@@ -276,6 +276,7 @@
   "howToGet": "How to get?",
   "restartReminder": "💡 Remember to restart the gateway after configuration: openclaw gateway restart",
   "restartCmd": "openclaw gateway restart",
+  "restartingGateway": "Restarting gateway, please wait...",
   "noPrepNeeded": "No preparation needed for this channel, proceed to next step",
   "prepDone": "Preparation done"
 }

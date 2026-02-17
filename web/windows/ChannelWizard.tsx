@@ -4,6 +4,7 @@ import StepWizard, { TipBox, StepCard, WizardStep } from '../components/StepWiza
 import { Language } from '../types';
 import { getTranslation } from '../locales';
 import { post } from '../services/request';
+import { gatewayApi } from '../services/api';
 
 interface Props { language: Language; }
 
@@ -57,6 +58,7 @@ const ChannelWizard: React.FC<Props> = ({ language }) => {
   const [allowFrom, setAllowFrom] = useState('');
   const [requireMention, setRequireMention] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [restarting, setRestarting] = useState(false);
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle');
 
   const channel = CHANNELS.find(c => c.id === selectedChannel);
@@ -136,8 +138,12 @@ const ChannelWizard: React.FC<Props> = ({ language }) => {
         allowFrom: allowFrom.split('\n').map(s => s.trim()).filter(Boolean),
         requireMention,
       });
+      setSaving(false);
+      setRestarting(true);
+      await gatewayApi.restart();
     } catch { /* toast error */ }
     setSaving(false);
+    setRestarting(false);
   }, [selectedChannel, tokens, dmPolicy, allowFrom, requireMention]);
 
   const dmPolicies: { id: DmPolicy; icon: string }[] = [
@@ -316,15 +322,11 @@ const ChannelWizard: React.FC<Props> = ({ language }) => {
               )}
             </div>
 
-            <div>
-              <div className="text-[10px] text-slate-400 dark:text-white/40 mb-1.5">{cw.configPreview}</div>
-              <pre className="p-3 rounded-xl bg-slate-900 dark:bg-black/40 text-green-400 text-[11px] font-mono overflow-x-auto max-h-48 overflow-y-auto custom-scrollbar leading-relaxed">{finalConfig}</pre>
-            </div>
-
-            {selectedChannel && (
-              <TipBox icon="lightbulb" variant="info">
-                {(cw as any)[`${selectedChannel}Pitfall`]}
-              </TipBox>
+            {restarting && (
+              <div className="flex items-center gap-3 p-4 rounded-xl bg-primary/10 border border-primary/20">
+                <span className="material-symbols-outlined text-primary animate-spin">progress_activity</span>
+                <span className="text-sm text-primary font-medium">{cw.restartingGateway}</span>
+              </div>
             )}
           </div>
         </StepCard>
