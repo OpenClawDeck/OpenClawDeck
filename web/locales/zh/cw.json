@@ -277,6 +277,7 @@
   "installPlugin": "一键安装插件",
   "installing": "安装中...",
   "pluginInstallSuccess": "插件安装成功！网关正在重启...",
+  "pluginInstalled": "✓ 插件已安装",
   "remoteGatewayHint": "检测到远程网关，请在远程服务器上手动执行以下命令安装插件：",
   "copyPermJson": "复制权限 JSON",
   "copied": "已复制",

@@ -117,6 +117,7 @@ export const ChannelsSection: React.FC<SectionProps> = ({ config, setField, getF
 
   // Plugin install state
   const [canInstallPlugin, setCanInstallPlugin] = useState<boolean | null>(null);
+  const [pluginInstalled, setPluginInstalled] = useState<Record<string, boolean>>({});
   const [pluginInstalling, setPluginInstalling] = useState(false);
   const [pluginInstallResult, setPluginInstallResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
@@ -184,7 +185,7 @@ export const ChannelsSection: React.FC<SectionProps> = ({ config, setField, getF
     setWebLoginBusy(false);
   }, []);
 
-  // Check if plugin install is available (local gateway only)
+  // Check if plugin install is available (local gateway only) and check installed status
   const checkCanInstallPlugin = useCallback(async () => {
     try {
       const res = await pluginApi.canInstall();
@@ -192,6 +193,30 @@ export const ChannelsSection: React.FC<SectionProps> = ({ config, setField, getF
     } catch {
       setCanInstallPlugin(false);
     }
+    // Check installed status for all plugin-required channels
+    const pluginSpecs: Record<string, string> = {
+      feishu: '@m1heng-clawd/feishu',
+      dingtalk: '@openclaw-china/dingtalk',
+      wecom: '@openclaw-china/wecom',
+      wecom_kf: '@openclaw-china/wecom-app',
+      qq: '@openclaw-china/qqbot',
+      msteams: '@openclaw/msteams',
+      zalo: '@openclaw/zalo',
+      matrix: '@openclaw/matrix',
+      voicecall: '@openclaw/voice-call',
+    };
+    const installed: Record<string, boolean> = {};
+    await Promise.all(
+      Object.entries(pluginSpecs).map(async ([ch, spec]) => {
+        try {
+          const res = await pluginApi.checkInstalled(spec);
+          installed[ch] = res.installed;
+        } catch {
+          installed[ch] = false;
+        }
+      })
+    );
+    setPluginInstalled(installed);
   }, []);
 
   // Install plugin
@@ -764,6 +789,19 @@ export const ChannelsSection: React.FC<SectionProps> = ({ config, setField, getF
                                   chId === 'zalo' ? '@openclaw/zalo' :
                                     chId === 'matrix' ? '@openclaw/matrix' :
                                       chId === 'voicecall' ? '@openclaw/voice-call' : '';
+                      const isInstalled = pluginInstalled[chId] === true;
+                      
+                      // Already installed - show green success
+                      if (isInstalled) {
+                        return (
+                          <div className="flex items-center gap-2 p-2.5 rounded-lg bg-green-50 dark:bg-green-500/5 border border-green-200 dark:border-green-500/20">
+                            <span className="material-symbols-outlined text-[14px] text-green-500">check_circle</span>
+                            <p className="text-[10px] font-bold text-green-700 dark:text-green-400">{cw.pluginInstalled || 'Plugin installed'}</p>
+                          </div>
+                        );
+                      }
+                      
+                      // Not installed - show install UI
                       return (
                         <div className="flex flex-col gap-2 p-2.5 rounded-lg bg-violet-50 dark:bg-violet-500/5 border border-violet-200 dark:border-violet-500/20">
                           <div className="flex items-start gap-2">
@@ -784,7 +822,7 @@ export const ChannelsSection: React.FC<SectionProps> = ({ config, setField, getF
                                   </button>
                                   {pluginInstallResult && (
                                     <div className={`px-2 py-1.5 rounded text-[10px] ${pluginInstallResult.ok ? 'bg-green-100 dark:bg-green-500/10 text-green-600' : 'bg-red-100 dark:bg-red-500/10 text-red-500'}`}>
-                                      {pluginInstallResult.ok ? (cw.pluginInstallSuccess || 'Plugin installed! Please restart gateway.') : pluginInstallResult.msg}
+                                      {pluginInstallResult.ok ? (cw.pluginInstallSuccess || 'Plugin installed! Gateway restarting...') : pluginInstallResult.msg}
                                     </div>
                                   )}
                                 </div>

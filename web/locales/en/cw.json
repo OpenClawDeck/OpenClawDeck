@@ -277,6 +277,7 @@
   "installPlugin": "Install Plugin",
   "installing": "Installing...",
   "pluginInstallSuccess": "Plugin installed! Gateway restarting...",
+  "pluginInstalled": "✓ Plugin installed",
   "remoteGatewayHint": "Remote gateway detected. Please install manually via CLI:",
   "copyPermJson": "Copy Permission JSON",
   "copied": "Copied",

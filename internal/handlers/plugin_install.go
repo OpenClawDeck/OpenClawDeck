@@ -48,6 +48,63 @@ func (h *PluginInstallHandler) CanInstall(w http.ResponseWriter, r *http.Request
 	})
 }
 
+// CheckInstalled checks if a plugin is already installed by querying Gateway config.
+// GET /api/v1/plugins/check?spec=@scope/package
+func (h *PluginInstallHandler) CheckInstalled(w http.ResponseWriter, r *http.Request) {
+	spec := strings.TrimSpace(r.URL.Query().Get("spec"))
+	if spec == "" {
+		web.Fail(w, r, "INVALID_PARAMS", "spec is required", http.StatusBadRequest)
+		return
+	}
+
+	// Query Gateway for config
+	if h.gwClient == nil {
+		web.OK(w, r, map[string]interface{}{
+			"installed": false,
+			"spec":      spec,
+		})
+		return
+	}
+
+	// Get config via Gateway RPC
+	resp, err := h.gwClient.Request("config.get", map[string]interface{}{})
+	if err != nil {
+		logger.Log.Debug().Err(err).Msg("failed to get config from gateway")
+		web.OK(w, r, map[string]interface{}{
+			"installed": false,
+			"spec":      spec,
+		})
+		return
+	}
+
+	// Parse response to check plugins.installs
+	installed := false
+	var respMap map[string]interface{}
+	if err := json.Unmarshal(resp, &respMap); err == nil {
+		if plugins, ok := respMap["plugins"].(map[string]interface{}); ok {
+			if installs, ok := plugins["installs"].(map[string]interface{}); ok {
+				// Check if any install record matches the spec
+				for _, install := range installs {
+					if installMap, ok := install.(map[string]interface{}); ok {
+						if installedSpec, ok := installMap["spec"].(string); ok {
+							// Match by spec (exact or without version)
+							if installedSpec == spec || strings.HasPrefix(installedSpec, spec+"@") {
+								installed = true
+								break
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	web.OK(w, r, map[string]interface{}{
+		"installed": installed,
+		"spec":      spec,
+	})
+}
+
 type pluginInstallRequest struct {
 	Spec string `json:"spec"` // npm spec like "@m1heng-clawd/feishu"
 }

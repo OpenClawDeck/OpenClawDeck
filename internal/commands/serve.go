@@ -462,6 +462,7 @@ func RunServe(args []string) int {
 	// 插件安装（本地网关）
 	pluginInstallHandler := handlers.NewPluginInstallHandler(gwClient)
 	router.GET("/api/v1/plugins/can-install", pluginInstallHandler.CanInstall)
+	router.GET("/api/v1/plugins/check", pluginInstallHandler.CheckInstalled)
 	router.POST("/api/v1/plugins/install", pluginInstallHandler.Install)
 
 	// 数据导出
