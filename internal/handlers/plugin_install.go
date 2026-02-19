@@ -103,14 +103,16 @@ func (h *PluginInstallHandler) CheckInstalled(w http.ResponseWriter, r *http.Req
 	// 2. spec field in the record
 	installed := false
 	matchedPluginId := ""
+	specPluginId := extractPluginIdFromSpec(spec)
+	var installedPluginIds []string
+
 	var respMap map[string]interface{}
 	if err := json.Unmarshal(resp, &respMap); err == nil {
 		if plugins, ok := respMap["plugins"].(map[string]interface{}); ok {
 			if installs, ok := plugins["installs"].(map[string]interface{}); ok {
-				// Extract plugin ID from spec (e.g., "@m1heng-clawd/feishu" -> "feishu")
-				specPluginId := extractPluginIdFromSpec(spec)
-
 				for pluginId, install := range installs {
+					installedPluginIds = append(installedPluginIds, pluginId)
+
 					// Method 1: Match by plugin ID (key)
 					if pluginId == specPluginId {
 						installed = true
@@ -130,12 +132,20 @@ func (h *PluginInstallHandler) CheckInstalled(w http.ResponseWriter, r *http.Req
 						}
 					}
 				}
+			} else {
+				logger.Log.Debug().Msg("plugins.installs not found or not a map")
 			}
+		} else {
+			logger.Log.Debug().Msg("plugins not found or not a map")
 		}
+	} else {
+		logger.Log.Debug().Err(err).Msg("failed to unmarshal config response")
 	}
 
-	logger.Log.Debug().
+	logger.Log.Info().
 		Str("spec", spec).
+		Str("specPluginId", specPluginId).
+		Strs("installedPluginIds", installedPluginIds).
 		Bool("installed", installed).
 		Str("matchedPluginId", matchedPluginId).
 		Msg("plugin install check")
@@ -180,12 +190,14 @@ func (h *PluginInstallHandler) Install(w http.ResponseWriter, r *http.Request) {
 	logger.Log.Info().Str("spec", spec).Msg("installing plugin")
 
 	// Run openclaw plugins install <spec>
-	cmdName := "openclaw"
+	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
-		cmdName = "openclaw.cmd"
+		// On Windows, use cmd.exe /c to run the openclaw command
+		// This handles .cmd/.bat files and PATH resolution correctly
+		cmd = exec.Command("cmd.exe", "/c", "openclaw", "plugins", "install", spec)
+	} else {
+		cmd = exec.Command("openclaw", "plugins", "install", spec)
 	}
-
-	cmd := exec.Command(cmdName, "plugins", "install", spec)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
