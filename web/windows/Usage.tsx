@@ -239,9 +239,18 @@ function TrendChart({ data, height = 140 }: { data: DailyEntry[]; height?: numbe
   );
 }
 
+// Budget settings interface
+interface BudgetSettings {
+  dailyLimit: number;
+  monthlyLimit: number;
+  alertThreshold: number; // percentage (0-100)
+  action: 'warn' | 'pause' | 'continue';
+}
+
 const Usage: React.FC<UsageProps> = ({ language }) => {
   const t = useMemo(() => getTranslation(language), [language]);
   const u = (t as any).usage as any;
+  const es = (t as any).es as any;
 
   const [range, setRange] = useState<DateRange>('7d');
   const [customStart, setCustomStart] = useState('');
@@ -251,6 +260,24 @@ const Usage: React.FC<UsageProps> = ({ language }) => {
   const [usageData, setUsageData] = useState<UsageData | null>(null);
   const [costData, setCostData] = useState<CostData | null>(null);
   const [tab, setTab] = useState<'overview' | 'models' | 'sessions' | 'timeseries' | 'logs'>('overview');
+
+  // Budget settings (persisted in localStorage)
+  const [budget, setBudget] = useState<BudgetSettings>(() => {
+    const saved = localStorage.getItem('openclaw-budget');
+    if (saved) {
+      try { return JSON.parse(saved); } catch { /* ignore */ }
+    }
+    return { dailyLimit: 0, monthlyLimit: 0, alertThreshold: 80, action: 'warn' };
+  });
+  const [showBudgetModal, setShowBudgetModal] = useState(false);
+  const [editBudget, setEditBudget] = useState<BudgetSettings>(budget);
+
+  // Save budget to localStorage
+  const saveBudget = useCallback(() => {
+    setBudget(editBudget);
+    localStorage.setItem('openclaw-budget', JSON.stringify(editBudget));
+    setShowBudgetModal(false);
+  }, [editBudget]);
 
   // Session detail (timeseries + logs)
   const [selectedSessionKey, setSelectedSessionKey] = useState('');
@@ -488,6 +515,80 @@ const Usage: React.FC<UsageProps> = ({ language }) => {
                 </div>
               </div>
             </div>
+
+            {/* Budget Card */}
+            {(() => {
+              const hasBudget = budget.dailyLimit > 0 || budget.monthlyLimit > 0;
+              const todayCost = daily.length > 0 ? daily[daily.length - 1]?.cost || 0 : 0;
+              const monthCost = totals.totalCost || 0;
+              const dailyPct = budget.dailyLimit > 0 ? Math.min((todayCost / budget.dailyLimit) * 100, 100) : 0;
+              const monthlyPct = budget.monthlyLimit > 0 ? Math.min((monthCost / budget.monthlyLimit) * 100, 100) : 0;
+              const isOverDaily = budget.dailyLimit > 0 && todayCost >= budget.dailyLimit;
+              const isOverMonthly = budget.monthlyLimit > 0 && monthCost >= budget.monthlyLimit;
+              const isNearDaily = budget.dailyLimit > 0 && dailyPct >= budget.alertThreshold;
+              const isNearMonthly = budget.monthlyLimit > 0 && monthlyPct >= budget.alertThreshold;
+
+              return (
+                <div className={`rounded-2xl border p-4 ${
+                  isOverDaily || isOverMonthly 
+                    ? 'border-red-300 dark:border-red-500/30 bg-red-50/50 dark:bg-red-500/5' 
+                    : isNearDaily || isNearMonthly 
+                      ? 'border-amber-300 dark:border-amber-500/30 bg-amber-50/50 dark:bg-amber-500/5'
+                      : 'border-slate-200/60 dark:border-white/[0.06] bg-white dark:bg-white/[0.02]'
+                }`}>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <span className={`material-symbols-outlined text-[16px] ${isOverDaily || isOverMonthly ? 'text-red-500' : isNearDaily || isNearMonthly ? 'text-amber-500' : 'text-emerald-500'}`}>
+                        {isOverDaily || isOverMonthly ? 'warning' : 'account_balance_wallet'}
+                      </span>
+                      <h3 className="text-[11px] font-bold text-slate-600 dark:text-white/60 uppercase tracking-wider">{es?.budget || 'Budget'}</h3>
+                    </div>
+                    <button onClick={() => { setEditBudget(budget); setShowBudgetModal(true); }}
+                      className="text-[10px] font-bold text-primary hover:underline flex items-center gap-0.5">
+                      <span className="material-symbols-outlined text-[12px]">settings</span>
+                      {es?.setBudget || 'Set Budget'}
+                    </button>
+                  </div>
+                  
+                  {hasBudget ? (
+                    <div className="grid grid-cols-2 gap-4">
+                      {/* Daily Budget */}
+                      {budget.dailyLimit > 0 && (
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[10px] text-slate-400 dark:text-white/40">{es?.dailyBudget || 'Daily'}</span>
+                            <span className={`text-[10px] font-bold ${isOverDaily ? 'text-red-500' : isNearDaily ? 'text-amber-500' : 'text-slate-600 dark:text-white/60'}`}>
+                              {fmtCost(todayCost)} / {fmtCost(budget.dailyLimit)}
+                            </span>
+                          </div>
+                          <div className="h-2 rounded-full bg-slate-100 dark:bg-white/[0.06] overflow-hidden">
+                            <div className={`h-full rounded-full transition-all duration-500 ${isOverDaily ? 'bg-red-500' : isNearDaily ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                              style={{ width: `${dailyPct}%` }} />
+                          </div>
+                        </div>
+                      )}
+                      {/* Monthly Budget */}
+                      {budget.monthlyLimit > 0 && (
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[10px] text-slate-400 dark:text-white/40">{es?.monthlyBudget || 'Monthly'}</span>
+                            <span className={`text-[10px] font-bold ${isOverMonthly ? 'text-red-500' : isNearMonthly ? 'text-amber-500' : 'text-slate-600 dark:text-white/60'}`}>
+                              {fmtCost(monthCost)} / {fmtCost(budget.monthlyLimit)}
+                            </span>
+                          </div>
+                          <div className="h-2 rounded-full bg-slate-100 dark:bg-white/[0.06] overflow-hidden">
+                            <div className={`h-full rounded-full transition-all duration-500 ${isOverMonthly ? 'bg-red-500' : isNearMonthly ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                              style={{ width: `${monthlyPct}%` }} />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-slate-400 dark:text-white/40 text-center py-2">{es?.noBudgetSet || 'No budget limit set'}</p>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Daily Trend + Token Breakdown */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
@@ -738,6 +839,82 @@ const Usage: React.FC<UsageProps> = ({ language }) => {
           </div>
         )}
       </div>
+
+      {/* Budget Settings Modal */}
+      {showBudgetModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setShowBudgetModal(false)}>
+          <div className="bg-white dark:bg-[#1e2028] rounded-xl shadow-2xl w-full max-w-md p-5 space-y-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-[18px] text-amber-500">account_balance_wallet</span>
+              <h3 className="text-sm font-bold text-slate-800 dark:text-white">{es?.budget || 'Budget Settings'}</h3>
+            </div>
+            
+            <div className="space-y-4">
+              {/* Daily Limit */}
+              <div>
+                <label className="text-[10px] font-bold text-slate-500 mb-1 block">{es?.dailyBudget || 'Daily Budget'} ($)</label>
+                <input type="number" step="0.01" min="0" value={editBudget.dailyLimit || ''} 
+                  onChange={e => setEditBudget({ ...editBudget, dailyLimit: Number(e.target.value) || 0 })}
+                  placeholder="0.00"
+                  className="w-full h-9 bg-white dark:bg-black/40 border border-slate-200 dark:border-white/10 rounded-lg px-3 text-xs text-slate-800 dark:text-slate-200 outline-none focus:border-primary" />
+                <p className="text-[10px] text-slate-400 mt-0.5">{language === 'zh' ? '每日费用上限，设为 0 表示不限制' : 'Daily spending limit, set to 0 for unlimited'}</p>
+              </div>
+
+              {/* Monthly Limit */}
+              <div>
+                <label className="text-[10px] font-bold text-slate-500 mb-1 block">{es?.monthlyBudget || 'Monthly Budget'} ($)</label>
+                <input type="number" step="0.01" min="0" value={editBudget.monthlyLimit || ''} 
+                  onChange={e => setEditBudget({ ...editBudget, monthlyLimit: Number(e.target.value) || 0 })}
+                  placeholder="0.00"
+                  className="w-full h-9 bg-white dark:bg-black/40 border border-slate-200 dark:border-white/10 rounded-lg px-3 text-xs text-slate-800 dark:text-slate-200 outline-none focus:border-primary" />
+                <p className="text-[10px] text-slate-400 mt-0.5">{language === 'zh' ? '每月费用上限，设为 0 表示不限制' : 'Monthly spending limit, set to 0 for unlimited'}</p>
+              </div>
+
+              {/* Alert Threshold */}
+              <div>
+                <label className="text-[10px] font-bold text-slate-500 mb-1 block">{es?.budgetThreshold || 'Alert Threshold'} (%)</label>
+                <div className="flex items-center gap-3">
+                  <input type="range" min="50" max="100" step="5" value={editBudget.alertThreshold}
+                    onChange={e => setEditBudget({ ...editBudget, alertThreshold: Number(e.target.value) })}
+                    className="flex-1 h-2 bg-slate-200 dark:bg-white/10 rounded-full appearance-none cursor-pointer accent-primary" />
+                  <span className="text-xs font-bold text-slate-600 dark:text-white/60 w-10 text-right">{editBudget.alertThreshold}%</span>
+                </div>
+                <p className="text-[10px] text-slate-400 mt-0.5">{language === 'zh' ? '达到此百分比时显示警告' : 'Show warning when reaching this percentage'}</p>
+              </div>
+
+              {/* Action */}
+              <div>
+                <label className="text-[10px] font-bold text-slate-500 mb-1.5 block">{es?.budgetAction || 'Over-limit Action'}</label>
+                <div className="flex gap-2">
+                  {(['warn', 'pause', 'continue'] as const).map(action => (
+                    <button key={action} onClick={() => setEditBudget({ ...editBudget, action })}
+                      className={`flex-1 px-3 py-2 rounded-lg text-[11px] font-bold border-2 transition-all ${
+                        editBudget.action === action 
+                          ? 'border-primary bg-primary/5 text-primary' 
+                          : 'border-slate-200 dark:border-white/10 text-slate-500 hover:border-slate-300'
+                      }`}>
+                      {action === 'warn' ? (es?.budgetActionWarn || 'Warn') : 
+                       action === 'pause' ? (es?.budgetActionPause || 'Pause') : 
+                       (es?.budgetActionContinue || 'Continue')}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-white/[0.06]">
+              <button onClick={() => setShowBudgetModal(false)} 
+                className="px-4 h-9 text-[11px] font-bold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">
+                {language === 'zh' ? '取消' : 'Cancel'}
+              </button>
+              <button onClick={saveBudget} 
+                className="px-5 h-9 bg-primary text-white text-[11px] font-bold rounded-lg hover:bg-primary/90 transition-colors">
+                {language === 'zh' ? '保存' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
