@@ -516,12 +516,17 @@ const Skills: React.FC<SkillsProps> = ({ language }) => {
     
     // 防抖：500ms 后执行，避免快速连续触发
     const timer = setTimeout(() => {
-      // 每次最多请求 15 个，分批处理
+      // 分批处理：每批最多 15 个，依次处理所有批次
       const batchSize = 15;
-      const batch = allItems.slice(0, batchSize);
-      if (batch.length > 0) {
-        translateBatch(language, batch);
-      }
+      const processBatches = async () => {
+        for (let i = 0; i < allItems.length; i += batchSize) {
+          const batch = allItems.slice(i, i + batchSize);
+          if (batch.length > 0) {
+            await translateBatch(language, batch);
+          }
+        }
+      };
+      processBatches();
     }, 500);
     
     return () => clearTimeout(timer);
