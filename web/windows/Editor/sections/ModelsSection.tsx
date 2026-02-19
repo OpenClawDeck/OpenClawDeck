@@ -246,6 +246,8 @@ export const ModelsSection: React.FC<SectionProps> = ({ config, setField, getFie
   const [wizBaseUrl, setWizBaseUrl] = useState('');
   const [wizApiType, setWizApiType] = useState('openai-completions');
   const [wizModels, setWizModels] = useState<string[]>([]);
+  const [wizModelCosts, setWizModelCosts] = useState<Record<string, { input: string; output: string; cacheRead: string; cacheWrite: string }>>({});
+  const [wizExpandedCost, setWizExpandedCost] = useState<string | null>(null);
   const [wizSearchInput, setWizSearchInput] = useState('');
   const [wizCustomName, setWizCustomName] = useState('');
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle');
@@ -274,6 +276,8 @@ export const ModelsSection: React.FC<SectionProps> = ({ config, setField, getFie
     setWizBaseUrl('');
     setWizApiType('openai-completions');
     setWizModels([]);
+    setWizModelCosts({});
+    setWizExpandedCost(null);
     setWizSearchInput('');
     setWizCustomName('');
     setTestStatus('idle');
@@ -309,11 +313,22 @@ export const ModelsSection: React.FC<SectionProps> = ({ config, setField, getFie
   const handleWizardSave = useCallback(() => {
     if (!preset || wizModels.length === 0) return;
     const providerName = preset.id === 'custom' ? (wizCustomName.trim() || wizBaseUrl.replace(/https?:\/\//, '').split('/')[0] || 'custom') : preset.id;
-    // 构建模型列表，包含预设费用配置
+    // 构建模型列表，包含自定义或预设费用配置
     const modelsWithCost = wizModels.map(id => {
       const presetModel = preset.models.find(m => m.id === id);
+      const customCost = wizModelCosts[id];
       const m: any = { id, name: presetModel?.name || id };
-      if (presetModel?.cost) m.cost = presetModel.cost;
+      // 优先使用自定义费用，否则使用预设费用
+      if (customCost && (customCost.input || customCost.output || customCost.cacheRead || customCost.cacheWrite)) {
+        const cost: any = {};
+        if (customCost.input) cost.input = Number(customCost.input);
+        if (customCost.output) cost.output = Number(customCost.output);
+        if (customCost.cacheRead) cost.cacheRead = Number(customCost.cacheRead);
+        if (customCost.cacheWrite) cost.cacheWrite = Number(customCost.cacheWrite);
+        if (Object.keys(cost).length > 0) m.cost = cost;
+      } else if (presetModel?.cost) {
+        m.cost = presetModel.cost;
+      }
       return m;
     });
     const pCfg: any = { baseUrl: wizBaseUrl || preset.baseUrl, api: wizApiType, models: modelsWithCost };
@@ -325,7 +340,7 @@ export const ModelsSection: React.FC<SectionProps> = ({ config, setField, getFie
     }
     resetWizard();
     setWizardOpen(false);
-  }, [preset, wizApiKey, wizBaseUrl, wizApiType, wizModels, wizCustomName, setField, resetWizard]);
+  }, [preset, wizApiKey, wizBaseUrl, wizApiType, wizModels, wizModelCosts, wizCustomName, setField, resetWizard]);
 
   const setPrimary = useCallback((path: string) => {
     setField(['agents', 'defaults', 'model', 'primary'], path);
@@ -605,30 +620,76 @@ export const ModelsSection: React.FC<SectionProps> = ({ config, setField, getFie
                       <div className="rounded-lg border border-slate-200 dark:border-white/10 divide-y divide-slate-100 dark:divide-white/[0.04]">
                         {wizModels.map((mid, idx) => {
                           const info = preset.models.find(m => m.id === mid);
+                          const customCost = wizModelCosts[mid] || { input: '', output: '', cacheRead: '', cacheWrite: '' };
+                          const isExpanded = wizExpandedCost === mid;
+                          const displayCost = customCost.input || customCost.output ? customCost : (info?.cost ? { input: String(info.cost.input), output: String(info.cost.output), cacheRead: String(info.cost.cacheRead || ''), cacheWrite: String(info.cost.cacheWrite || '') } : null);
                           return (
-                            <div key={mid} className="flex items-center gap-2 px-3 py-2">
-                              <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded shrink-0 ${idx === 0 ? 'bg-green-100 dark:bg-green-500/15 text-green-700 dark:text-green-400' : 'bg-slate-100 dark:bg-white/[0.06] text-slate-500 dark:text-white/40'}`}>
-                                {idx === 0 ? (es.primary || 'Primary') : `${es.fallbackN || 'Fallback'} ${idx}`}
-                              </span>
-                              <div className="flex-1 min-w-0">
-                                <span className="text-[11px] font-mono text-slate-700 dark:text-white/80 truncate block">{mid}</span>
-                                <div className="flex items-center gap-2">
-                                  {info && info.name !== mid && <span className="text-[11px] text-slate-400 truncate">{info.name}{info.ctx ? ` · ${info.ctx}` : ''}</span>}
-                                  {info?.cost && <span className="text-[10px] text-amber-500" title={`Input: $${info.cost.input}/M, Output: $${info.cost.output}/M`}>💰 ${info.cost.input}/${info.cost.output}</span>}
+                            <div key={mid} className="px-3 py-2">
+                              <div className="flex items-center gap-2">
+                                <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded shrink-0 ${idx === 0 ? 'bg-green-100 dark:bg-green-500/15 text-green-700 dark:text-green-400' : 'bg-slate-100 dark:bg-white/[0.06] text-slate-500 dark:text-white/40'}`}>
+                                  {idx === 0 ? (es.primary || 'Primary') : `${es.fallbackN || 'Fallback'} ${idx}`}
+                                </span>
+                                <div className="flex-1 min-w-0">
+                                  <span className="text-[11px] font-mono text-slate-700 dark:text-white/80 truncate block">{mid}</span>
+                                  <div className="flex items-center gap-2">
+                                    {info && info.name !== mid && <span className="text-[11px] text-slate-400 truncate">{info.name}{info.ctx ? ` · ${info.ctx}` : ''}</span>}
+                                    {displayCost && <span className="text-[10px] text-amber-500">💰 ${displayCost.input || '0'}/${displayCost.output || '0'}</span>}
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-0.5 shrink-0">
+                                  <button onClick={() => setWizExpandedCost(isExpanded ? null : mid)}
+                                    className={`p-0.5 transition-colors ${isExpanded ? 'text-amber-500' : 'text-slate-300 hover:text-amber-500 dark:text-white/20 dark:hover:text-amber-400'}`} title={es.modelCost || 'Edit Cost'}>
+                                    <span className="material-symbols-outlined text-[14px]">payments</span>
+                                  </button>
+                                  {idx > 0 && (
+                                    <button onClick={() => setWizModels(prev => { const n = [...prev];[n[idx - 1], n[idx]] = [n[idx], n[idx - 1]]; return n; })}
+                                      className="p-0.5 text-slate-300 hover:text-slate-500 dark:text-white/20 dark:hover:text-white/50" title={es.moveUp || 'Move Up'}>
+                                      <span className="material-symbols-outlined text-[14px]">arrow_upward</span>
+                                    </button>
+                                  )}
+                                  <button onClick={() => setWizModels(prev => prev.filter((_, i) => i !== idx))}
+                                    className="p-0.5 text-slate-300 hover:text-red-500 dark:text-white/20 dark:hover:text-red-400" title={es.removeModel || 'Remove'}>
+                                    <span className="material-symbols-outlined text-[14px]">close</span>
+                                  </button>
                                 </div>
                               </div>
-                              <div className="flex items-center gap-0.5 shrink-0">
-                                {idx > 0 && (
-                                  <button onClick={() => setWizModels(prev => { const n = [...prev];[n[idx - 1], n[idx]] = [n[idx], n[idx - 1]]; return n; })}
-                                    className="p-0.5 text-slate-300 hover:text-slate-500 dark:text-white/20 dark:hover:text-white/50" title={es.moveUp || 'Move Up'}>
-                                    <span className="material-symbols-outlined text-[14px]">arrow_upward</span>
-                                  </button>
-                                )}
-                                <button onClick={() => setWizModels(prev => prev.filter((_, i) => i !== idx))}
-                                  className="p-0.5 text-slate-300 hover:text-red-500 dark:text-white/20 dark:hover:text-red-400" title={es.removeModel || 'Remove'}>
-                                  <span className="material-symbols-outlined text-[14px]">close</span>
-                                </button>
-                              </div>
+                              {/* 费用编辑面板 */}
+                              {isExpanded && (
+                                <div className="mt-2 pt-2 border-t border-slate-100 dark:border-white/[0.04]">
+                                  <div className="flex items-center gap-1.5 mb-2">
+                                    <span className="material-symbols-outlined text-[12px] text-amber-500">payments</span>
+                                    <span className="text-[10px] font-bold text-slate-500">{es.modelCost || 'Model Cost'}</span>
+                                    <span className="text-[10px] text-slate-400">({es.perMillionTokens || '$/1M tokens'})</span>
+                                  </div>
+                                  <div className="grid grid-cols-4 gap-2">
+                                    <div>
+                                      <label className="text-[9px] text-slate-400 mb-0.5 block">{es.inputCost || 'Input'}</label>
+                                      <input type="number" step="0.01" value={customCost.input} placeholder={info?.cost?.input?.toString() || '0'}
+                                        onChange={e => setWizModelCosts(prev => ({ ...prev, [mid]: { ...customCost, input: e.target.value } }))}
+                                        className="w-full h-6 bg-white dark:bg-black/40 border border-slate-200 dark:border-white/10 rounded px-1.5 text-[10px] text-slate-800 dark:text-slate-200 outline-none focus:border-primary" />
+                                    </div>
+                                    <div>
+                                      <label className="text-[9px] text-slate-400 mb-0.5 block">{es.outputCost || 'Output'}</label>
+                                      <input type="number" step="0.01" value={customCost.output} placeholder={info?.cost?.output?.toString() || '0'}
+                                        onChange={e => setWizModelCosts(prev => ({ ...prev, [mid]: { ...customCost, output: e.target.value } }))}
+                                        className="w-full h-6 bg-white dark:bg-black/40 border border-slate-200 dark:border-white/10 rounded px-1.5 text-[10px] text-slate-800 dark:text-slate-200 outline-none focus:border-primary" />
+                                    </div>
+                                    <div>
+                                      <label className="text-[9px] text-slate-400 mb-0.5 block">{es.cacheReadCost || 'Cache R'}</label>
+                                      <input type="number" step="0.01" value={customCost.cacheRead} placeholder={info?.cost?.cacheRead?.toString() || '0'}
+                                        onChange={e => setWizModelCosts(prev => ({ ...prev, [mid]: { ...customCost, cacheRead: e.target.value } }))}
+                                        className="w-full h-6 bg-white dark:bg-black/40 border border-slate-200 dark:border-white/10 rounded px-1.5 text-[10px] text-slate-800 dark:text-slate-200 outline-none focus:border-primary" />
+                                    </div>
+                                    <div>
+                                      <label className="text-[9px] text-slate-400 mb-0.5 block">{es.cacheWriteCost || 'Cache W'}</label>
+                                      <input type="number" step="0.01" value={customCost.cacheWrite} placeholder={info?.cost?.cacheWrite?.toString() || '0'}
+                                        onChange={e => setWizModelCosts(prev => ({ ...prev, [mid]: { ...customCost, cacheWrite: e.target.value } }))}
+                                        className="w-full h-6 bg-white dark:bg-black/40 border border-slate-200 dark:border-white/10 rounded px-1.5 text-[10px] text-slate-800 dark:text-slate-200 outline-none focus:border-primary" />
+                                    </div>
+                                  </div>
+                                  <p className="text-[9px] text-slate-400 mt-1">{es.costHint || 'Leave empty to use default pricing'}</p>
+                                </div>
+                              )}
                             </div>
                           );
                         })}
