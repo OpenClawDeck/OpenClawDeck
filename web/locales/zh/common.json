@@ -224,7 +224,19 @@
     "catTools": "工具",
     "catManagement": "管理",
     "catMedia": "媒体",
-    "catDocks": "频道"
+    "catDocks": "频道",
+    "renameSession": "重命名",
+    "deleteSession": "删除会话",
+    "confirmDeleteSession": "确定删除此会话？删除后无法恢复。",
+    "renaming": "重命名中...",
+    "deleting": "删除中...",
+    "renameOk": "重命名成功",
+    "renameFailed": "重命名失败",
+    "deleteOk": "删除成功",
+    "deleteFailed": "删除失败",
+    "cannotDeleteMain": "无法删除主会话",
+    "sessionLabel": "会话名称",
+    "sessionLabelPlaceholder": "输入新的会话名称..."
   },
   "agt": {
     "title": "代理管理",

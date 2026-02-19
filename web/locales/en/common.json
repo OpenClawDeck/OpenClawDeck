@@ -224,7 +224,19 @@
     "catTools": "Tools",
     "catManagement": "Management",
     "catMedia": "Media",
-    "catDocks": "Channels"
+    "catDocks": "Channels",
+    "renameSession": "Rename",
+    "deleteSession": "Delete Session",
+    "confirmDeleteSession": "Are you sure you want to delete this session? This cannot be undone.",
+    "renaming": "Renaming...",
+    "deleting": "Deleting...",
+    "renameOk": "Renamed successfully",
+    "renameFailed": "Rename failed",
+    "deleteOk": "Deleted successfully",
+    "deleteFailed": "Delete failed",
+    "cannotDeleteMain": "Cannot delete main session",
+    "sessionLabel": "Session Name",
+    "sessionLabelPlaceholder": "Enter new session name..."
   },
   "agt": {
     "title": "Agents",

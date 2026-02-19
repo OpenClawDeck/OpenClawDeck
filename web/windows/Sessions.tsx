@@ -101,6 +101,15 @@ const Sessions: React.FC<SessionsProps> = ({ language }) => {
   const [compacting, setCompacting] = useState(false);
   const [compactResult, setCompactResult] = useState<{ ok: boolean; text: string } | null>(null);
 
+  // Session actions (rename, delete)
+  const [sessionMenuKey, setSessionMenuKey] = useState<string | null>(null);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameKey, setRenameKey] = useState('');
+  const [renameLabel, setRenameLabel] = useState('');
+  const [renaming, setRenaming] = useState(false);
+  const [deleteConfirmKey, setDeleteConfirmKey] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
   // Slash command popup
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashHighlight, setSlashHighlight] = useState(0);
@@ -438,6 +447,57 @@ const Sessions: React.FC<SessionsProps> = ({ language }) => {
     setRunId(null);
   }, []);
 
+  // Rename session
+  const openRenameDialog = useCallback((key: string, currentLabel: string) => {
+    setRenameKey(key);
+    setRenameLabel(currentLabel || '');
+    setRenameOpen(true);
+    setSessionMenuKey(null);
+  }, []);
+
+  const handleRenameSession = useCallback(async () => {
+    if (!gwReady || renaming || !renameKey) return;
+    setRenaming(true);
+    try {
+      await gwApi.proxy('sessions.patch', { key: renameKey, label: renameLabel.trim() || null });
+      // Update local sessions list
+      setSessions(prev => prev.map(s => s.key === renameKey ? { ...s, label: renameLabel.trim() || s.key } : s));
+      setRenameOpen(false);
+      setRenameKey('');
+      setRenameLabel('');
+    } catch (err: any) {
+      console.error('Rename failed:', err);
+    } finally {
+      setRenaming(false);
+    }
+  }, [gwReady, renaming, renameKey, renameLabel]);
+
+  // Delete session
+  const handleDeleteSession = useCallback(async (key: string) => {
+    if (!gwReady || deleting) return;
+    // Cannot delete main session
+    if (key === 'main') {
+      setDeleteConfirmKey(null);
+      return;
+    }
+    setDeleting(true);
+    try {
+      await gwApi.proxy('sessions.delete', { key });
+      // Remove from local list
+      setSessions(prev => prev.filter(s => s.key !== key));
+      // If deleted current session, switch to main
+      if (sessionKey === key) {
+        setSessionKey('main');
+        setMessages([]);
+      }
+      setDeleteConfirmKey(null);
+    } catch (err: any) {
+      console.error('Delete failed:', err);
+    } finally {
+      setDeleting(false);
+    }
+  }, [gwReady, deleting, sessionKey]);
+
   // Slash command selection
   const selectSlashCommand = useCallback((cmd: string) => {
     setInput(cmd + ' ');
@@ -547,25 +607,44 @@ const Sessions: React.FC<SessionsProps> = ({ language }) => {
             </div>
           )}
           {sessions.map(s => (
-            <button key={s.key} onClick={() => selectSession(s.key)}
-              className={`w-full text-left p-2.5 rounded-xl transition-all border ${sessionKey === s.key
-                ? 'bg-primary/10 border-primary/20 shadow-sm'
-                : 'border-transparent hover:bg-slate-200/50 dark:hover:bg-white/5'
-                }`}>
-              <div className="flex items-center justify-between mb-0.5">
-                <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${s.kind === 'direct' ? 'bg-blue-500/10 text-blue-500' :
-                  s.kind === 'group' ? 'bg-purple-500/10 text-purple-500' :
-                    'bg-slate-200 dark:bg-white/5 text-slate-400 dark:text-white/40'
-                  }`}>{s.kind || 'chat'}</span>
-                {s.totalTokens ? <span className="text-[10px] text-slate-400 dark:text-white/20 font-mono">{(s.totalTokens / 1000).toFixed(1)}k</span> : null}
+            <div key={s.key} className="relative group">
+              <button onClick={() => selectSession(s.key)}
+                className={`w-full text-left p-2.5 rounded-xl transition-all border ${sessionKey === s.key
+                  ? 'bg-primary/10 border-primary/20 shadow-sm'
+                  : 'border-transparent hover:bg-slate-200/50 dark:hover:bg-white/5'
+                  }`}>
+                <div className="flex items-center justify-between mb-0.5">
+                  <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${s.kind === 'direct' ? 'bg-blue-500/10 text-blue-500' :
+                    s.kind === 'group' ? 'bg-purple-500/10 text-purple-500' :
+                      'bg-slate-200 dark:bg-white/5 text-slate-400 dark:text-white/40'
+                    }`}>{s.kind || 'chat'}</span>
+                  {s.totalTokens ? <span className="text-[10px] text-slate-400 dark:text-white/20 font-mono">{(s.totalTokens / 1000).toFixed(1)}k</span> : null}
+                </div>
+                <h4 className={`text-[11px] font-bold truncate pr-12 ${sessionKey === s.key ? 'text-slate-900 dark:text-white' : 'text-slate-600 dark:text-white/50'}`}>
+                  {s.label || s.key}
+                </h4>
+                {s.lastActiveAt && (
+                  <p className="text-[11px] text-slate-400 dark:text-white/20 mt-0.5">{new Date(s.lastActiveAt).toLocaleString()}</p>
+                )}
+              </button>
+              {/* Hover actions */}
+              <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  onClick={(e) => { e.stopPropagation(); openRenameDialog(s.key, s.label || ''); }}
+                  className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-white/10 text-slate-400 hover:text-primary transition-all"
+                  title={c.renameSession}>
+                  <span className="material-symbols-outlined text-[14px]">edit</span>
+                </button>
+                {s.key !== 'main' && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setDeleteConfirmKey(s.key); }}
+                    className="p-1.5 rounded-lg hover:bg-red-100 dark:hover:bg-red-500/10 text-slate-400 hover:text-red-500 transition-all"
+                    title={c.deleteSession}>
+                    <span className="material-symbols-outlined text-[14px]">delete</span>
+                  </button>
+                )}
               </div>
-              <h4 className={`text-[11px] font-bold truncate ${sessionKey === s.key ? 'text-slate-900 dark:text-white' : 'text-slate-600 dark:text-white/50'}`}>
-                {s.label || s.key}
-              </h4>
-              {s.lastActiveAt && (
-                <p className="text-[11px] text-slate-400 dark:text-white/20 mt-0.5">{new Date(s.lastActiveAt).toLocaleString()}</p>
-              )}
-            </button>
+            </div>
           ))}
         </div>
 
@@ -911,6 +990,84 @@ const Sessions: React.FC<SessionsProps> = ({ language }) => {
               <button onClick={handleInject} disabled={injecting || !injectMsg.trim()}
                 className="px-4 py-2 rounded-xl bg-purple-500 text-white text-[11px] font-bold disabled:opacity-40 transition-all">
                 {injecting ? c.injecting : c.inject}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Rename Session Modal */}
+      {renameOpen && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/30 dark:bg-black/50 backdrop-blur-sm"
+          onClick={() => !renaming && setRenameOpen(false)}>
+          <div className="w-full max-w-sm mx-4 rounded-2xl bg-white dark:bg-[#1a1a2e] border border-slate-200 dark:border-white/10 shadow-2xl p-5"
+            onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
+              <span className="material-symbols-outlined text-[18px] text-primary">edit</span>
+              {c.renameSession}
+            </h3>
+
+            <div>
+              <label className="text-[10px] font-bold text-slate-500 dark:text-white/40 uppercase block mb-1">{c.sessionLabel}</label>
+              <input
+                value={renameLabel}
+                onChange={e => setRenameLabel(e.target.value)}
+                placeholder={c.sessionLabelPlaceholder}
+                className="w-full px-3 py-2.5 rounded-xl bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 text-[12px] text-slate-800 dark:text-white/80 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                disabled={renaming}
+                autoFocus
+                onKeyDown={e => { if (e.key === 'Enter') handleRenameSession(); }}
+              />
+              <p className="text-[10px] text-slate-400 dark:text-white/30 mt-1.5">
+                Key: <code className="font-mono bg-slate-100 dark:bg-white/5 px-1 rounded">{renameKey}</code>
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 mt-5">
+              <button onClick={() => setRenameOpen(false)} disabled={renaming}
+                className="px-4 py-2 rounded-xl text-[11px] font-bold text-slate-500 dark:text-white/40 hover:bg-slate-100 dark:hover:bg-white/5 transition-all">
+                {c.cancel}
+              </button>
+              <button onClick={handleRenameSession} disabled={renaming}
+                className="px-4 py-2 rounded-xl bg-primary text-white text-[11px] font-bold disabled:opacity-40 transition-all flex items-center gap-1.5">
+                {renaming && <span className="material-symbols-outlined text-[14px] animate-spin">progress_activity</span>}
+                {renaming ? c.renaming : c.renameSession}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmKey && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/30 dark:bg-black/50 backdrop-blur-sm"
+          onClick={() => !deleting && setDeleteConfirmKey(null)}>
+          <div className="w-full max-w-sm mx-4 rounded-2xl bg-white dark:bg-[#1a1a2e] border border-slate-200 dark:border-white/10 shadow-2xl p-5"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-500/10 flex items-center justify-center">
+                <span className="material-symbols-outlined text-[20px] text-red-500">delete</span>
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-800 dark:text-white">{c.deleteSession}</h3>
+                <p className="text-[11px] text-slate-500 dark:text-white/40">{c.confirmDeleteSession}</p>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 dark:bg-white/[0.02] rounded-xl p-3 mb-4">
+              <p className="text-[10px] text-slate-400 dark:text-white/30 mb-1">Session Key</p>
+              <code className="text-[11px] font-mono text-slate-700 dark:text-white/70 break-all">{deleteConfirmKey}</code>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setDeleteConfirmKey(null)} disabled={deleting}
+                className="px-4 py-2 rounded-xl text-[11px] font-bold text-slate-500 dark:text-white/40 hover:bg-slate-100 dark:hover:bg-white/5 transition-all">
+                {c.cancel}
+              </button>
+              <button onClick={() => handleDeleteSession(deleteConfirmKey)} disabled={deleting}
+                className="px-4 py-2 rounded-xl bg-red-500 text-white text-[11px] font-bold disabled:opacity-40 transition-all flex items-center gap-1.5">
+                {deleting && <span className="material-symbols-outlined text-[14px] animate-spin">progress_activity</span>}
+                {deleting ? c.deleting : c.deleteSession}
               </button>
             </div>
           </div>
