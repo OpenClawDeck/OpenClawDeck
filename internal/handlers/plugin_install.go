@@ -97,7 +97,8 @@ func (h *PluginInstallHandler) CheckInstalled(w http.ResponseWriter, r *http.Req
 	}
 
 	// Parse response to check plugins.installs
-	// plugins.installs is Record<pluginId, PluginInstallRecord>
+	// Gateway config.get returns ConfigFileSnapshot: { config: OpenClawConfig, ... }
+	// OpenClawConfig contains plugins.installs as Record<pluginId, PluginInstallRecord>
 	// We need to match by:
 	// 1. Plugin ID (key) - e.g., "feishu" matches spec "@m1heng-clawd/feishu"
 	// 2. spec field in the record
@@ -108,7 +109,13 @@ func (h *PluginInstallHandler) CheckInstalled(w http.ResponseWriter, r *http.Req
 
 	var respMap map[string]interface{}
 	if err := json.Unmarshal(resp, &respMap); err == nil {
-		if plugins, ok := respMap["plugins"].(map[string]interface{}); ok {
+		// config.get returns ConfigFileSnapshot, the actual config is in the "config" field
+		configObj := respMap
+		if cfg, ok := respMap["config"].(map[string]interface{}); ok {
+			configObj = cfg
+		}
+
+		if plugins, ok := configObj["plugins"].(map[string]interface{}); ok {
 			if installs, ok := plugins["installs"].(map[string]interface{}); ok {
 				for pluginId, install := range installs {
 					installedPluginIds = append(installedPluginIds, pluginId)
