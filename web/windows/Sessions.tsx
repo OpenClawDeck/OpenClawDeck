@@ -62,6 +62,7 @@ const Sessions: React.FC<SessionsProps> = ({ language }) => {
 
   // WebSocket connection (Manager's /api/v1/ws for chat streaming events)
   const wsRef = useRef<WebSocket | null>(null);
+  const handleChatEventRef = useRef<(payload?: any) => void>(() => {});
   const [wsConnected, setWsConnected] = useState(false);
   const [wsError, setWsError] = useState<string | null>(null);
   const [wsConnecting, setWsConnecting] = useState(false);
@@ -187,7 +188,7 @@ const Sessions: React.FC<SessionsProps> = ({ language }) => {
       try {
         const msg = JSON.parse(evt.data);
         if (msg.type === 'chat') {
-          handleChatEvent(msg.data);
+          handleChatEventRef.current(msg.data);
         } else if (msg.type === 'talk.mode') {
           setTalkMode(msg.data?.mode || null);
         }
@@ -208,7 +209,7 @@ const Sessions: React.FC<SessionsProps> = ({ language }) => {
     };
   }, []);
 
-  // Chat event handler (streaming)
+  // Chat event handler (streaming) - defined before useEffect to avoid closure issues
   const handleChatEvent = useCallback((payload?: any) => {
     if (!payload) return;
     // Only handle events for the current session
@@ -254,7 +255,12 @@ const Sessions: React.FC<SessionsProps> = ({ language }) => {
       setRunId(null);
       setError(payload.errorMessage || c.error);
     }
-  }, []);
+  }, [c.error]);
+
+  // Keep ref updated with latest handler
+  useEffect(() => {
+    handleChatEventRef.current = handleChatEvent;
+  }, [handleChatEvent]);
 
   // Load sessions list (via REST proxy)
   const loadSessions = useCallback(async () => {
