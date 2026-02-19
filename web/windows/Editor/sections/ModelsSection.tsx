@@ -309,7 +309,14 @@ export const ModelsSection: React.FC<SectionProps> = ({ config, setField, getFie
   const handleWizardSave = useCallback(() => {
     if (!preset || wizModels.length === 0) return;
     const providerName = preset.id === 'custom' ? (wizCustomName.trim() || wizBaseUrl.replace(/https?:\/\//, '').split('/')[0] || 'custom') : preset.id;
-    const pCfg: any = { baseUrl: wizBaseUrl || preset.baseUrl, api: wizApiType, models: wizModels.map(id => ({ id, name: id })) };
+    // 构建模型列表，包含预设费用配置
+    const modelsWithCost = wizModels.map(id => {
+      const presetModel = preset.models.find(m => m.id === id);
+      const m: any = { id, name: presetModel?.name || id };
+      if (presetModel?.cost) m.cost = presetModel.cost;
+      return m;
+    });
+    const pCfg: any = { baseUrl: wizBaseUrl || preset.baseUrl, api: wizApiType, models: modelsWithCost };
     if (wizApiKey) pCfg.apiKey = wizApiKey;
     setField(['models', 'providers', providerName], pCfg);
     setField(['agents', 'defaults', 'model', 'primary'], `${providerName}/${wizModels[0]}`);
@@ -582,6 +589,7 @@ export const ModelsSection: React.FC<SectionProps> = ({ config, setField, getFie
                               <div className="text-[11px] font-mono text-slate-400 truncate">{m.id}</div>
                             </div>
                             <div className="flex items-center gap-1.5 shrink-0">
+                              {m.cost && <span className="text-[10px] px-1.5 py-0.5 bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded" title={`Input: $${m.cost.input}/M, Output: $${m.cost.output}/M`}>${m.cost.input}/${m.cost.output}</span>}
                               {m.ctx && <span className="text-[11px] px-1.5 py-0.5 bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded">{m.ctx}</span>}
                               <span className="material-symbols-outlined text-[14px] text-primary/60">add_circle</span>
                             </div>
@@ -604,7 +612,10 @@ export const ModelsSection: React.FC<SectionProps> = ({ config, setField, getFie
                               </span>
                               <div className="flex-1 min-w-0">
                                 <span className="text-[11px] font-mono text-slate-700 dark:text-white/80 truncate block">{mid}</span>
-                                {info && info.name !== mid && <span className="text-[11px] text-slate-400 truncate block">{info.name}{info.ctx ? ` · ${info.ctx}` : ''}</span>}
+                                <div className="flex items-center gap-2">
+                                  {info && info.name !== mid && <span className="text-[11px] text-slate-400 truncate">{info.name}{info.ctx ? ` · ${info.ctx}` : ''}</span>}
+                                  {info?.cost && <span className="text-[10px] text-amber-500" title={`Input: $${info.cost.input}/M, Output: $${info.cost.output}/M`}>💰 ${info.cost.input}/${info.cost.output}</span>}
+                                </div>
                               </div>
                               <div className="flex items-center gap-0.5 shrink-0">
                                 {idx > 0 && (
