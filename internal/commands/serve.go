@@ -220,10 +220,10 @@ func RunServe(args []string) int {
 	// 	logger.Log.Error().Err(err).Msg("安全引擎初始化失败")
 	// }
 
-	// GW 事件采集器已禁用（依赖安全引擎）
-	// gwCollector := monitor.NewGWCollector(gwClient, wsHub, secEngine, cfg.Monitor.IntervalSeconds)
-	// go gwCollector.Start()
-	// defer gwCollector.Stop()
+	// GW 事件采集器（转发 Gateway 实时事件到前端 WebSocket）
+	gwCollector := monitor.NewGWCollector(gwClient, wsHub, nil, cfg.Monitor.IntervalSeconds)
+	go gwCollector.Start()
+	defer gwCollector.Stop()
 
 	// 本地文件扫描监控（安全引擎已禁用，传 nil；不自动启动）
 	monSvc := monitor.NewService(cfg.OpenClaw.ConfigPath, wsHub, nil, cfg.Monitor.IntervalSeconds)
