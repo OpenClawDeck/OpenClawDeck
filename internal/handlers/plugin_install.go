@@ -38,6 +38,25 @@ func (h *PluginInstallHandler) isRemoteGateway() bool {
 	return true
 }
 
+// extractPluginIdFromSpec extracts the plugin ID from an npm spec.
+// Examples:
+//   - "@m1heng-clawd/feishu" -> "feishu"
+//   - "@openclaw-china/dingtalk" -> "dingtalk"
+//   - "@openclaw/msteams" -> "msteams"
+//   - "some-plugin" -> "some-plugin"
+func extractPluginIdFromSpec(spec string) string {
+	// Remove version suffix if present (e.g., "@scope/pkg@1.0.0" -> "@scope/pkg")
+	if idx := strings.LastIndex(spec, "@"); idx > 0 {
+		spec = spec[:idx]
+	}
+	// Extract package name after last slash
+	if idx := strings.LastIndex(spec, "/"); idx >= 0 {
+		return spec[idx+1:]
+	}
+	// No slash, return as-is (might be a simple package name)
+	return spec
+}
+
 // CanInstall returns whether plugin installation is available (local gateway only).
 // GET /api/v1/plugins/can-install
 func (h *PluginInstallHandler) CanInstall(w http.ResponseWriter, r *http.Request) {
@@ -78,18 +97,34 @@ func (h *PluginInstallHandler) CheckInstalled(w http.ResponseWriter, r *http.Req
 	}
 
 	// Parse response to check plugins.installs
+	// plugins.installs is Record<pluginId, PluginInstallRecord>
+	// We need to match by:
+	// 1. Plugin ID (key) - e.g., "feishu" matches spec "@m1heng-clawd/feishu"
+	// 2. spec field in the record
 	installed := false
+	matchedPluginId := ""
 	var respMap map[string]interface{}
 	if err := json.Unmarshal(resp, &respMap); err == nil {
 		if plugins, ok := respMap["plugins"].(map[string]interface{}); ok {
 			if installs, ok := plugins["installs"].(map[string]interface{}); ok {
-				// Check if any install record matches the spec
-				for _, install := range installs {
+				// Extract plugin ID from spec (e.g., "@m1heng-clawd/feishu" -> "feishu")
+				specPluginId := extractPluginIdFromSpec(spec)
+
+				for pluginId, install := range installs {
+					// Method 1: Match by plugin ID (key)
+					if pluginId == specPluginId {
+						installed = true
+						matchedPluginId = pluginId
+						break
+					}
+
+					// Method 2: Match by spec field in the record
 					if installMap, ok := install.(map[string]interface{}); ok {
 						if installedSpec, ok := installMap["spec"].(string); ok {
 							// Match by spec (exact or without version)
-							if installedSpec == spec || strings.HasPrefix(installedSpec, spec+"@") {
+							if installedSpec == spec || strings.HasPrefix(installedSpec, spec+"@") || strings.HasPrefix(spec, installedSpec+"@") {
 								installed = true
+								matchedPluginId = pluginId
 								break
 							}
 						}
@@ -98,6 +133,12 @@ func (h *PluginInstallHandler) CheckInstalled(w http.ResponseWriter, r *http.Req
 			}
 		}
 	}
+
+	logger.Log.Debug().
+		Str("spec", spec).
+		Bool("installed", installed).
+		Str("matchedPluginId", matchedPluginId).
+		Msg("plugin install check")
 
 	web.OK(w, r, map[string]interface{}{
 		"installed": installed,
