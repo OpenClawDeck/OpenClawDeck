@@ -8,24 +8,63 @@ import { useToast } from '../../../components/Toast';
 // ============================================================================
 // 服务商预设
 // ============================================================================
+interface ModelCost {
+  input: number; output: number; cacheRead: number; cacheWrite: number;
+}
+
 interface ProviderPreset {
   id: string; name: string; labelKey?: string; icon: string; category: 'builtin' | 'custom' | 'local';
   envVar: string; defaultModel: string;
-  models: { id: string; name: string; ctx?: string }[];
+  models: { id: string; name: string; ctx?: string; cost?: ModelCost }[];
   baseUrl: string; api: string; needsBaseUrl?: boolean; helpUrl?: string;
 }
 
 const PROVIDERS: ProviderPreset[] = [
-  { id: 'anthropic', name: 'Anthropic', icon: '🅰️', category: 'builtin', envVar: 'ANTHROPIC_API_KEY', defaultModel: 'claude-sonnet-4-5', models: [{ id: 'claude-opus-4-6', name: 'Claude Opus 4', ctx: '200K' }, { id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5', ctx: '200K' }, { id: 'claude-sonnet-4-1', name: 'Claude Sonnet 4.1', ctx: '200K' }], baseUrl: 'https://api.anthropic.com', api: 'anthropic-messages', helpUrl: 'https://console.anthropic.com' },
-  { id: 'openai', name: 'OpenAI', icon: '🤖', category: 'builtin', envVar: 'OPENAI_API_KEY', defaultModel: 'gpt-4o', models: [{ id: 'gpt-5.3-codex', name: 'GPT-5.3 Codex', ctx: '256K' }, { id: 'gpt-5.1-codex', name: 'GPT-5.1 Codex', ctx: '256K' }, { id: 'gpt-4o', name: 'GPT-4o', ctx: '128K' }, { id: 'o3', name: 'o3', ctx: '200K' }], baseUrl: 'https://api.openai.com/v1', api: 'openai-completions', helpUrl: 'https://platform.openai.com' },
-  { id: 'github-copilot', name: 'GitHub Copilot', icon: '🐙', category: 'builtin', envVar: 'GITHUB_COPILOT_TOKEN', defaultModel: 'gpt-5.2-codex', models: [{ id: 'gpt-5.2-codex', name: 'GPT-5.2 Codex', ctx: '256K' }, { id: 'gpt-5.2', name: 'GPT-5.2', ctx: '128K' }], baseUrl: 'https://api.githubcopilot.com', api: 'github-copilot', helpUrl: 'https://github.com/features/copilot' },
-  { id: 'gemini', name: 'Google Gemini', icon: '✨', category: 'builtin', envVar: 'GEMINI_API_KEY', defaultModel: 'gemini-3-pro', models: [{ id: 'gemini-3-pro', name: 'Gemini 3 Pro', ctx: '2M' }, { id: 'gemini-3-flash', name: 'Gemini 3 Flash', ctx: '2M' }], baseUrl: 'https://generativelanguage.googleapis.com/v1beta', api: 'openai-completions', helpUrl: 'https://aistudio.google.com' },
-  { id: 'xai', name: 'xAI (Grok)', icon: '✖️', category: 'builtin', envVar: 'XAI_API_KEY', defaultModel: 'grok-2', models: [{ id: 'grok-2', name: 'Grok 2', ctx: '128K' }, { id: 'grok-beta', name: 'Grok Beta', ctx: '128K' }], baseUrl: 'https://api.x.ai/v1', api: 'openai-completions', helpUrl: 'https://x.ai/api' },
-  { id: 'baidu', name: 'Baidu Qianfan', icon: '🐼', category: 'builtin', envVar: 'BAIDU_API_KEY', defaultModel: 'ernie-4.0', models: [{ id: 'ernie-4.0', name: 'ERNIE 4.0', ctx: '8K' }, { id: 'ernie-bot-turbo', name: 'ERNIE Bot Turbo', ctx: '8K' }], baseUrl: 'https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop', api: 'openai-completions', helpUrl: 'https://cloud.baidu.com/doc/WENXINWORKSHOP/index.html' },
-  { id: 'voyage', name: 'Voyage AI', icon: '🛶', category: 'builtin', envVar: 'VOYAGE_API_KEY', defaultModel: 'voyage-large-2', models: [{ id: 'voyage-large-2', name: 'Voyage Large 2', ctx: '32K' }, { id: 'voyage-code-2', name: 'Voyage Code 2', ctx: '32K' }], baseUrl: 'https://api.voyageai.com/v1', api: 'openai-completions', helpUrl: 'https://docs.voyageai.com' },
-  { id: 'moonshot', name: 'Moonshot', icon: '🌑', category: 'builtin', envVar: 'MOONSHOT_API_KEY', defaultModel: 'moonshot-v1-8k', models: [{ id: 'moonshot-v1-8k', name: 'Moonshot V1 8K', ctx: '8K' }, { id: 'moonshot-v1-32k', name: 'Moonshot V1 32K', ctx: '32K' }, { id: 'moonshot-v1-128k', name: 'Moonshot V1 128K', ctx: '128K' }], baseUrl: 'https://api.moonshot.cn/v1', api: 'openai-completions', helpUrl: 'https://platform.moonshot.cn' },
-  { id: 'deepseek', name: 'DeepSeek', icon: '🐋', category: 'builtin', envVar: 'DEEPSEEK_API_KEY', defaultModel: 'deepseek-chat', models: [{ id: 'deepseek-chat', name: 'DeepSeek Chat', ctx: '32K' }, { id: 'deepseek-coder', name: 'DeepSeek Coder', ctx: '32K' }], baseUrl: 'https://api.deepseek.com/v1', api: 'openai-completions', helpUrl: 'https://platform.deepseek.com' },
-  { id: 'yi', name: 'Yi (01.AI)', icon: '🟢', category: 'builtin', envVar: 'YI_API_KEY', defaultModel: 'yi-large', models: [{ id: 'yi-large', name: 'Yi Large', ctx: '32K' }, { id: 'yi-medium', name: 'Yi Medium', ctx: '16K' }, { id: 'yi-vision', name: 'Yi Vision', ctx: '16K' }], baseUrl: 'https://api.lingyiwanwu.com/v1', api: 'openai-completions', helpUrl: 'https://platform.lingyiwanwu.com' },
+  { id: 'anthropic', name: 'Anthropic', icon: '🅰️', category: 'builtin', envVar: 'ANTHROPIC_API_KEY', defaultModel: 'claude-sonnet-4-5', models: [
+    { id: 'claude-opus-4-6', name: 'Claude Opus 4', ctx: '200K', cost: { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 } },
+    { id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5', ctx: '200K', cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 } },
+    { id: 'claude-sonnet-4-1', name: 'Claude Sonnet 4.1', ctx: '200K', cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 } }
+  ], baseUrl: 'https://api.anthropic.com', api: 'anthropic-messages', helpUrl: 'https://console.anthropic.com' },
+  { id: 'openai', name: 'OpenAI', icon: '🤖', category: 'builtin', envVar: 'OPENAI_API_KEY', defaultModel: 'gpt-4o', models: [
+    { id: 'gpt-5.3-codex', name: 'GPT-5.3 Codex', ctx: '256K', cost: { input: 5, output: 15, cacheRead: 2.5, cacheWrite: 5 } },
+    { id: 'gpt-5.1-codex', name: 'GPT-5.1 Codex', ctx: '256K', cost: { input: 5, output: 15, cacheRead: 2.5, cacheWrite: 5 } },
+    { id: 'gpt-4o', name: 'GPT-4o', ctx: '128K', cost: { input: 2.5, output: 10, cacheRead: 1.25, cacheWrite: 2.5 } },
+    { id: 'o3', name: 'o3', ctx: '200K', cost: { input: 10, output: 40, cacheRead: 5, cacheWrite: 10 } }
+  ], baseUrl: 'https://api.openai.com/v1', api: 'openai-completions', helpUrl: 'https://platform.openai.com' },
+  { id: 'github-copilot', name: 'GitHub Copilot', icon: '🐙', category: 'builtin', envVar: 'GITHUB_COPILOT_TOKEN', defaultModel: 'gpt-5.2-codex', models: [
+    { id: 'gpt-5.2-codex', name: 'GPT-5.2 Codex', ctx: '256K', cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } },
+    { id: 'gpt-5.2', name: 'GPT-5.2', ctx: '128K', cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }
+  ], baseUrl: 'https://api.githubcopilot.com', api: 'github-copilot', helpUrl: 'https://github.com/features/copilot' },
+  { id: 'gemini', name: 'Google Gemini', icon: '✨', category: 'builtin', envVar: 'GEMINI_API_KEY', defaultModel: 'gemini-3-pro', models: [
+    { id: 'gemini-3-pro', name: 'Gemini 3 Pro', ctx: '2M', cost: { input: 1.25, output: 5, cacheRead: 0.3, cacheWrite: 1.25 } },
+    { id: 'gemini-3-flash', name: 'Gemini 3 Flash', ctx: '2M', cost: { input: 0.075, output: 0.3, cacheRead: 0.02, cacheWrite: 0.075 } }
+  ], baseUrl: 'https://generativelanguage.googleapis.com/v1beta', api: 'openai-completions', helpUrl: 'https://aistudio.google.com' },
+  { id: 'xai', name: 'xAI (Grok)', icon: '✖️', category: 'builtin', envVar: 'XAI_API_KEY', defaultModel: 'grok-2', models: [
+    { id: 'grok-2', name: 'Grok 2', ctx: '128K', cost: { input: 2, output: 10, cacheRead: 0.5, cacheWrite: 2 } },
+    { id: 'grok-beta', name: 'Grok Beta', ctx: '128K', cost: { input: 5, output: 15, cacheRead: 1.25, cacheWrite: 5 } }
+  ], baseUrl: 'https://api.x.ai/v1', api: 'openai-completions', helpUrl: 'https://x.ai/api' },
+  { id: 'baidu', name: 'Baidu Qianfan', icon: '🐼', category: 'builtin', envVar: 'BAIDU_API_KEY', defaultModel: 'ernie-4.0', models: [
+    { id: 'ernie-4.0', name: 'ERNIE 4.0', ctx: '8K', cost: { input: 0.12, output: 0.12, cacheRead: 0, cacheWrite: 0 } },
+    { id: 'ernie-bot-turbo', name: 'ERNIE Bot Turbo', ctx: '8K', cost: { input: 0.008, output: 0.008, cacheRead: 0, cacheWrite: 0 } }
+  ], baseUrl: 'https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop', api: 'openai-completions', helpUrl: 'https://cloud.baidu.com/doc/WENXINWORKSHOP/index.html' },
+  { id: 'voyage', name: 'Voyage AI', icon: '🛶', category: 'builtin', envVar: 'VOYAGE_API_KEY', defaultModel: 'voyage-large-2', models: [
+    { id: 'voyage-large-2', name: 'Voyage Large 2', ctx: '32K', cost: { input: 0.12, output: 0.12, cacheRead: 0, cacheWrite: 0 } },
+    { id: 'voyage-code-2', name: 'Voyage Code 2', ctx: '32K', cost: { input: 0.12, output: 0.12, cacheRead: 0, cacheWrite: 0 } }
+  ], baseUrl: 'https://api.voyageai.com/v1', api: 'openai-completions', helpUrl: 'https://docs.voyageai.com' },
+  { id: 'moonshot', name: 'Moonshot', icon: '🌑', category: 'builtin', envVar: 'MOONSHOT_API_KEY', defaultModel: 'moonshot-v1-8k', models: [
+    { id: 'moonshot-v1-8k', name: 'Moonshot V1 8K', ctx: '8K', cost: { input: 0.012, output: 0.012, cacheRead: 0, cacheWrite: 0 } },
+    { id: 'moonshot-v1-32k', name: 'Moonshot V1 32K', ctx: '32K', cost: { input: 0.024, output: 0.024, cacheRead: 0, cacheWrite: 0 } },
+    { id: 'moonshot-v1-128k', name: 'Moonshot V1 128K', ctx: '128K', cost: { input: 0.06, output: 0.06, cacheRead: 0, cacheWrite: 0 } }
+  ], baseUrl: 'https://api.moonshot.cn/v1', api: 'openai-completions', helpUrl: 'https://platform.moonshot.cn' },
+  { id: 'deepseek', name: 'DeepSeek', icon: '🐋', category: 'builtin', envVar: 'DEEPSEEK_API_KEY', defaultModel: 'deepseek-chat', models: [
+    { id: 'deepseek-chat', name: 'DeepSeek Chat', ctx: '32K', cost: { input: 0.14, output: 0.28, cacheRead: 0.014, cacheWrite: 0.14 } },
+    { id: 'deepseek-coder', name: 'DeepSeek Coder', ctx: '32K', cost: { input: 0.14, output: 0.28, cacheRead: 0.014, cacheWrite: 0.14 } }
+  ], baseUrl: 'https://api.deepseek.com/v1', api: 'openai-completions', helpUrl: 'https://platform.deepseek.com' },
+  { id: 'yi', name: 'Yi (01.AI)', icon: '🟢', category: 'builtin', envVar: 'YI_API_KEY', defaultModel: 'yi-large', models: [
+    { id: 'yi-large', name: 'Yi Large', ctx: '32K', cost: { input: 0.02, output: 0.02, cacheRead: 0, cacheWrite: 0 } },
+    { id: 'yi-medium', name: 'Yi Medium', ctx: '16K', cost: { input: 0.0025, output: 0.0025, cacheRead: 0, cacheWrite: 0 } },
+    { id: 'yi-vision', name: 'Yi Vision', ctx: '16K', cost: { input: 0.006, output: 0.006, cacheRead: 0, cacheWrite: 0 } }
+  ], baseUrl: 'https://api.lingyiwanwu.com/v1', api: 'openai-completions', helpUrl: 'https://platform.lingyiwanwu.com' },
   { id: 'ollama', name: 'Ollama', icon: '🦙', category: 'local', envVar: '', defaultModel: 'llama3', models: [], baseUrl: 'http://localhost:11434/v1', api: 'openai-completions', helpUrl: 'https://ollama.com' },
   { id: 'lmstudio', name: 'LM Studio', icon: '🖥️', category: 'local', envVar: '', defaultModel: 'local-model', models: [], baseUrl: 'http://localhost:1234/v1', api: 'openai-completions', helpUrl: 'https://lmstudio.ai' },
   { id: 'localai', name: 'LocalAI', icon: '🏠', category: 'local', envVar: '', defaultModel: 'gpt-3.5-turbo', models: [], baseUrl: 'http://localhost:8080/v1', api: 'openai-completions', helpUrl: 'https://localai.io' },
@@ -193,7 +232,10 @@ export const ModelsSection: React.FC<SectionProps> = ({ config, setField, getFie
 
   // 添加模型弹窗
   const [showAddModel, setShowAddModel] = useState<string | null>(null);
-  const [newModel, setNewModel] = useState({ id: '', name: '', reasoning: false, contextWindow: '' });
+  const [newModel, setNewModel] = useState({ 
+    id: '', name: '', reasoning: false, contextWindow: '',
+    cost: { input: '', output: '', cacheRead: '', cacheWrite: '' }
+  });
 
   // 向导状态
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -297,8 +339,15 @@ export const ModelsSection: React.FC<SectionProps> = ({ config, setField, getFie
     if (newModel.name.trim()) m.name = newModel.name.trim();
     if (newModel.reasoning) m.reasoning = true;
     if (newModel.contextWindow) m.contextWindow = Number(newModel.contextWindow);
+    // 添加费用配置
+    const cost: any = {};
+    if (newModel.cost.input) cost.input = Number(newModel.cost.input);
+    if (newModel.cost.output) cost.output = Number(newModel.cost.output);
+    if (newModel.cost.cacheRead) cost.cacheRead = Number(newModel.cost.cacheRead);
+    if (newModel.cost.cacheWrite) cost.cacheWrite = Number(newModel.cost.cacheWrite);
+    if (Object.keys(cost).length > 0) m.cost = cost;
     setField(['models', 'providers', showAddModel, 'models'], [...models, m]);
-    setNewModel({ id: '', name: '', reasoning: false, contextWindow: '' });
+    setNewModel({ id: '', name: '', reasoning: false, contextWindow: '', cost: { input: '', output: '', cacheRead: '', cacheWrite: '' } });
     setShowAddModel(null);
   }, [showAddModel, newModel, getField, setField]);
 
@@ -342,7 +391,7 @@ export const ModelsSection: React.FC<SectionProps> = ({ config, setField, getFie
                 <div className="mt-2 pt-2 border-t border-slate-100 dark:border-white/[0.04]">
                   <div className="flex items-center justify-between mb-1.5">
                     <span className="text-[10px] font-bold text-slate-500">{es.models} ({models.length})</span>
-                    <button onClick={() => { setShowAddModel(name); setNewModel({ id: '', name: '', reasoning: false, contextWindow: '' }); }} className="text-[11px] font-bold text-primary hover:underline">+ {es.add}</button>
+                    <button onClick={() => { setShowAddModel(name); setNewModel({ id: '', name: '', reasoning: false, contextWindow: '', cost: { input: '', output: '', cacheRead: '', cacheWrite: '' } }); }} className="text-[11px] font-bold text-primary hover:underline">+ {es.add}</button>
                   </div>
                   {models.map((m: any, mi: number) => {
                     const path = `${name}/${m.id}`;
@@ -796,6 +845,33 @@ export const ModelsSection: React.FC<SectionProps> = ({ config, setField, getFie
                   </button>
                   <p className="text-[11px] text-slate-400 mt-0.5">{es.reasoningDesc}</p>
                 </div>
+              </div>
+              {/* 费用配置 */}
+              <div className="pt-2 border-t border-slate-100 dark:border-white/[0.06]">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <span className="material-symbols-outlined text-[14px] text-amber-500">payments</span>
+                  <label className="text-[10px] font-bold text-slate-500">{es.modelCost || 'Model Cost'}</label>
+                  <span className="text-[10px] text-slate-400">({es.perMillionTokens || '$/1M tokens'})</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] text-slate-400 mb-0.5 block">{es.inputCost || 'Input'}</label>
+                    <input type="number" step="0.01" value={newModel.cost.input} onChange={e => setNewModel({ ...newModel, cost: { ...newModel.cost, input: e.target.value } })} placeholder="3.00" className="w-full h-7 bg-white dark:bg-black/40 border border-slate-200 dark:border-white/10 rounded-md px-2 text-xs text-slate-800 dark:text-slate-200 outline-none focus:border-primary" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-400 mb-0.5 block">{es.outputCost || 'Output'}</label>
+                    <input type="number" step="0.01" value={newModel.cost.output} onChange={e => setNewModel({ ...newModel, cost: { ...newModel.cost, output: e.target.value } })} placeholder="15.00" className="w-full h-7 bg-white dark:bg-black/40 border border-slate-200 dark:border-white/10 rounded-md px-2 text-xs text-slate-800 dark:text-slate-200 outline-none focus:border-primary" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-400 mb-0.5 block">{es.cacheReadCost || 'Cache Read'}</label>
+                    <input type="number" step="0.01" value={newModel.cost.cacheRead} onChange={e => setNewModel({ ...newModel, cost: { ...newModel.cost, cacheRead: e.target.value } })} placeholder="0.30" className="w-full h-7 bg-white dark:bg-black/40 border border-slate-200 dark:border-white/10 rounded-md px-2 text-xs text-slate-800 dark:text-slate-200 outline-none focus:border-primary" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-400 mb-0.5 block">{es.cacheWriteCost || 'Cache Write'}</label>
+                    <input type="number" step="0.01" value={newModel.cost.cacheWrite} onChange={e => setNewModel({ ...newModel, cost: { ...newModel.cost, cacheWrite: e.target.value } })} placeholder="3.75" className="w-full h-7 bg-white dark:bg-black/40 border border-slate-200 dark:border-white/10 rounded-md px-2 text-xs text-slate-800 dark:text-slate-200 outline-none focus:border-primary" />
+                  </div>
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1">{es.costHint || 'Leave empty to use default pricing'}</p>
               </div>
             </div>
             <div className="flex justify-end gap-2 pt-2">
