@@ -789,6 +789,60 @@ const Skills: React.FC<SkillsProps> = ({ language }) => {
               <button onClick={handleMarketSearch} disabled={marketSearching} className="h-9 px-3 bg-primary text-white text-[11px] font-bold rounded-lg disabled:opacity-50 shrink-0 whitespace-nowrap">
                 {marketSearching ? sk.searching : sk.search}
               </button>
+              {/* 自动翻译开关 */}
+              {language !== 'en' && (
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button onClick={() => setAutoTranslate(!autoTranslate)} 
+                    className={`h-9 px-3 flex items-center gap-1.5 border rounded-lg text-[11px] font-bold transition-all ${
+                      autoTranslate 
+                        ? 'bg-primary/10 dark:bg-primary/20 border-primary/30 text-primary hover:bg-primary/20' 
+                        : 'bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/30 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-500/20'
+                    }`}
+                    title={autoTranslate ? sk.autoTranslateOn : sk.autoTranslateOff}>
+                    <span className="material-symbols-outlined text-[16px]">{autoTranslate ? 'translate' : 'translate_off'}</span>
+                    {sk.autoTranslate}
+                  </button>
+                  {/* 翻译进度指示 */}
+                  {autoTranslate && (() => {
+                    const total = marketResults.length;
+                    const translating = Object.entries(translations).filter(([k, t]) => k.startsWith('market:') && t.status === 'translating').length;
+                    const cached = Object.entries(translations).filter(([k, t]) => k.startsWith('market:') && t.status === 'cached').length;
+                    if (translating > 0) {
+                      return (
+                        <span className="h-9 px-2 flex items-center gap-1 text-[10px] text-primary bg-primary/5 border border-primary/20 rounded-lg">
+                          <span className="material-symbols-outlined text-[14px] animate-spin">progress_activity</span>
+                          {translating}/{total}
+                        </span>
+                      );
+                    }
+                    if (cached > 0 && cached < total) {
+                      return (
+                        <span className="h-9 px-2 flex items-center gap-1 text-[10px] text-slate-500 dark:text-white/50 bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg">
+                          {cached}/{total}
+                        </span>
+                      );
+                    }
+                    return null;
+                  })()}
+                  {/* 刷新翻译按钮 */}
+                  {autoTranslate && (
+                    <button 
+                      onClick={() => {
+                        setTranslations(prev => {
+                          const next: typeof prev = {};
+                          for (const [k, v] of Object.entries(prev)) {
+                            if (!k.startsWith('market:')) next[k] = v;
+                          }
+                          return next;
+                        });
+                      }}
+                      className="h-9 w-9 flex items-center justify-center bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 border border-slate-200 dark:border-white/10 rounded-lg"
+                      title={sk.refreshTranslation || 'Refresh translations'}>
+                      <span className="material-symbols-outlined text-[16px] text-slate-500">refresh</span>
+                    </button>
+                  )}
+                </div>
+              )}
               {/* 排序按钮组 */}
               <div className="flex bg-slate-200 dark:bg-black/40 p-0.5 rounded-lg shadow-inner shrink-0">
                 {([['newest', sk.sortNewest], ['downloads', sk.sortDownloads], ['stars', sk.sortStars]] as const).map(([val, label]) => (
