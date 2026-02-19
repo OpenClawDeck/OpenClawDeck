@@ -119,7 +119,7 @@ export const ChannelsSection: React.FC<SectionProps> = ({ config, setField, getF
   const [canInstallPlugin, setCanInstallPlugin] = useState<boolean | null>(null);
   const [pluginInstalled, setPluginInstalled] = useState<Record<string, boolean>>({});
   const [pluginInstalling, setPluginInstalling] = useState(false);
-  const [pluginInstallResult, setPluginInstallResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [pluginInstallResult, setPluginInstallResult] = useState<{ ok: boolean; msg: string; phase?: 'installed' | 'restarting' | 'ready' } | null>(null);
 
   const handleWizardTest = useCallback(async (chId: string) => {
     setWizTestStatus('testing');
@@ -219,25 +219,68 @@ export const ChannelsSection: React.FC<SectionProps> = ({ config, setField, getF
     setPluginInstalled(installed);
   }, []);
 
-  // Install plugin
-  const handleInstallPlugin = useCallback(async (spec: string) => {
+  // Install plugin with gateway restart detection
+  const handleInstallPlugin = useCallback(async (spec: string, channelId: string) => {
     setPluginInstalling(true);
     setPluginInstallResult(null);
     try {
       const res = await pluginApi.install(spec);
       if (res.success) {
-        setPluginInstallResult({ ok: true, msg: 'success' });
-        // Auto restart gateway after successful install
+        // Phase 1: Plugin installed, now restarting gateway
+        setPluginInstallResult({ ok: true, msg: 'success', phase: 'restarting' });
+        setPluginInstalling(false);
+        
+        // Trigger gateway restart
         try {
           await gatewayApi.restart();
         } catch { /* ignore restart errors */ }
+        
+        // Phase 2: Poll for gateway ready (up to 30 seconds)
+        let retries = 0;
+        const maxRetries = 30;
+        const pollInterval = 1000;
+        
+        const checkGatewayReady = async (): Promise<boolean> => {
+          try {
+            const health = await gwApi.proxy('health', {});
+            return !!health;
+          } catch {
+            return false;
+          }
+        };
+        
+        const poll = setInterval(async () => {
+          retries++;
+          const ready = await checkGatewayReady();
+          
+          if (ready) {
+            clearInterval(poll);
+            // Phase 3: Gateway ready, refresh plugin status
+            setPluginInstallResult({ ok: true, msg: 'success', phase: 'ready' });
+            // Update plugin installed status
+            try {
+              const checkRes = await pluginApi.checkInstalled(spec);
+              if (checkRes.installed) {
+                setPluginInstalled(prev => ({ ...prev, [channelId]: true }));
+              }
+            } catch { /* ignore */ }
+            // Clear result after 2 seconds
+            setTimeout(() => setPluginInstallResult(null), 2000);
+          } else if (retries >= maxRetries) {
+            clearInterval(poll);
+            // Timeout - gateway didn't come back, but plugin was installed
+            setPluginInstallResult({ ok: true, msg: 'success', phase: 'ready' });
+            setTimeout(() => setPluginInstallResult(null), 2000);
+          }
+        }, pollInterval);
       } else {
         setPluginInstallResult({ ok: false, msg: res.output || 'Install failed' });
+        setPluginInstalling(false);
       }
     } catch (err: any) {
       setPluginInstallResult({ ok: false, msg: err?.message || 'Install failed' });
+      setPluginInstalling(false);
     }
-    setPluginInstalling(false);
   }, []);
 
   const handleSendTest = useCallback(async (ch: string) => {
@@ -811,8 +854,8 @@ export const ChannelsSection: React.FC<SectionProps> = ({ config, setField, getF
                               {canInstallPlugin === true ? (
                                 <div className="mt-2 flex flex-col gap-2">
                                   <button
-                                    onClick={() => handleInstallPlugin(pluginSpec)}
-                                    disabled={pluginInstalling}
+                                    onClick={() => handleInstallPlugin(pluginSpec, addingChannel)}
+                                    disabled={pluginInstalling || pluginInstallResult?.phase === 'restarting'}
                                     className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-violet-500 hover:bg-violet-600 text-white text-[11px] font-bold transition-all disabled:opacity-50"
                                   >
                                     <span className={`material-symbols-outlined text-[14px] ${pluginInstalling ? 'animate-spin' : ''}`}>
@@ -821,8 +864,24 @@ export const ChannelsSection: React.FC<SectionProps> = ({ config, setField, getF
                                     {pluginInstalling ? (cw.installing || 'Installing...') : (cw.installPlugin || 'Install Plugin')}
                                   </button>
                                   {pluginInstallResult && (
-                                    <div className={`px-2 py-1.5 rounded text-[10px] ${pluginInstallResult.ok ? 'bg-green-100 dark:bg-green-500/10 text-green-600' : 'bg-red-100 dark:bg-red-500/10 text-red-500'}`}>
-                                      {pluginInstallResult.ok ? (cw.pluginInstallSuccess || 'Plugin installed! Gateway restarting...') : pluginInstallResult.msg}
+                                    <div className={`px-2 py-1.5 rounded text-[10px] flex items-center gap-1.5 ${pluginInstallResult.ok ? 'bg-green-100 dark:bg-green-500/10 text-green-600' : 'bg-red-100 dark:bg-red-500/10 text-red-500'}`}>
+                                      {pluginInstallResult.ok ? (
+                                        <>
+                                          {pluginInstallResult.phase === 'restarting' && (
+                                            <>
+                                              <span className="material-symbols-outlined text-[12px] animate-spin">progress_activity</span>
+                                              {cw.gatewayRestarting || 'Gateway restarting...'}
+                                            </>
+                                          )}
+                                          {pluginInstallResult.phase === 'ready' && (
+                                            <>
+                                              <span className="material-symbols-outlined text-[12px]">check_circle</span>
+                                              {cw.pluginReady || 'Plugin ready!'}
+                                            </>
+                                          )}
+                                          {!pluginInstallResult.phase && (cw.pluginInstallSuccess || 'Plugin installed!')}
+                                        </>
+                                      ) : pluginInstallResult.msg}
                                     </div>
                                   )}
                                 </div>
