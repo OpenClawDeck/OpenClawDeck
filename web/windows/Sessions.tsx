@@ -6,6 +6,8 @@ import { gwApi } from '../services/api';
 
 interface SessionsProps {
   language: Language;
+  pendingSessionKey?: string | null;
+  onSessionKeyConsumed?: () => void;
 }
 
 interface GwSession {
@@ -56,7 +58,7 @@ function fmtTime(ts?: number): string {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-const Sessions: React.FC<SessionsProps> = ({ language }) => {
+const Sessions: React.FC<SessionsProps> = ({ language, pendingSessionKey, onSessionKeyConsumed }) => {
   const t = useMemo(() => getTranslation(language), [language]);
   const c = t.chat as any;
 
@@ -77,6 +79,15 @@ const Sessions: React.FC<SessionsProps> = ({ language }) => {
 
   // Talk mode (real-time event)
   const [talkMode, setTalkMode] = useState<string | null>(null);
+
+  // Handle pending session key from cross-window navigation
+  useEffect(() => {
+    if (pendingSessionKey && pendingSessionKey !== sessionKey) {
+      setSessionKey(pendingSessionKey);
+      setDrawerOpen(false);
+      onSessionKeyConsumed?.();
+    }
+  }, [pendingSessionKey, sessionKey, onSessionKeyConsumed]);
 
   // Chat
   const [messages, setMessages] = useState<ChatMsg[]>([]);

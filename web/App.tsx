@@ -114,6 +114,9 @@ const App: React.FC = () => {
   const [maxZ, setMaxZ] = useState(100);
   const [localeReady, setLocaleReady] = useState(language === 'en');
 
+  // Cross-window navigation: jump to a specific session in Sessions window
+  const [pendingSessionKey, setPendingSessionKey] = useState<string | null>(null);
+
   // 动态加载语言包
   useEffect(() => {
     if (language === 'en') { setLocaleReady(true); return; }
@@ -187,6 +190,12 @@ const App: React.FC = () => {
     });
     setMaxZ(p => p + 1);
   }, [maxZ]);
+
+  // Navigate to Sessions window and select a specific session
+  const navigateToSession = useCallback((sessionKey: string) => {
+    setPendingSessionKey(sessionKey);
+    openWindow('sessions');
+  }, [openWindow]);
 
   const closeWindow = useCallback((id: WindowID) => {
     setWindows(prev => prev.map(w => w.id === id ? { ...w, isOpen: false, isMaximized: false } : w));
@@ -272,10 +281,10 @@ const App: React.FC = () => {
               <Suspense fallback={<div className="flex items-center justify-center h-full text-slate-400 dark:text-white/40"><span className="material-symbols-outlined animate-spin mr-2">progress_activity</span></div>}>
                 {w.id === 'dashboard' && <Dashboard language={language} />}
                 {w.id === 'gateway' && <Gateway language={language} />}
-                {w.id === 'sessions' && <Sessions language={language} />}
+                {w.id === 'sessions' && <Sessions language={language} pendingSessionKey={pendingSessionKey} onSessionKeyConsumed={() => setPendingSessionKey(null)} />}
                 {w.id === 'activity' && <Activity language={language} />}
                 {w.id === 'alerts' && <Alerts language={language} />}
-                {w.id === 'config_mgmt' && <Usage language={language} />}
+                {w.id === 'config_mgmt' && <Usage language={language} onNavigateToSession={navigateToSession} />}
                 {w.id === 'editor' && <Editor language={language} />}
                 {w.id === 'skills' && <Skills language={language} />}
                 {/* {w.id === 'security' && <Security language={language} />} */}

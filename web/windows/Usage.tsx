@@ -6,6 +6,7 @@ import { gwApi } from '../services/api';
 
 interface UsageProps {
   language: Language;
+  onNavigateToSession?: (sessionKey: string) => void;
 }
 
 type DateRange = 'today' | '7d' | '30d' | 'custom';
@@ -278,7 +279,7 @@ interface BudgetSettings {
   action: 'warn' | 'pause' | 'continue';
 }
 
-const Usage: React.FC<UsageProps> = ({ language }) => {
+const Usage: React.FC<UsageProps> = ({ language, onNavigateToSession }) => {
   const t = useMemo(() => getTranslation(language), [language]);
   const u = (t as any).usage as any;
   const es = (t as any).es as any;
@@ -873,6 +874,13 @@ const Usage: React.FC<UsageProps> = ({ language }) => {
                           title={u.usageLogs}>
                           <span className="material-symbols-outlined text-[14px]">receipt_long</span>
                         </button>
+                        {onNavigateToSession && (
+                          <button onClick={() => onNavigateToSession(s.key)}
+                            className="w-7 h-7 rounded-lg bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 flex items-center justify-center transition-colors"
+                            title={u.goToSession || '跳转到会话'}>
+                            <span className="material-symbols-outlined text-[14px]">chat</span>
+                          </button>
+                        )}
                       </div>
                     </div>
                     <div className="mt-2">
