@@ -728,7 +728,7 @@ const Dashboard: React.FC<DashboardProps> = ({ language }) => {
                   <div key={i} className="flex items-center gap-3 py-1.5 px-2 rounded-lg hover:bg-slate-50 dark:hover:bg-white/[0.02] transition-colors">
                     <div className="w-6 h-6 rounded-lg bg-indigo-500/10 flex items-center justify-center text-[10px] font-bold text-indigo-500">{i + 1}</div>
                     <span className="text-[11px] font-medium text-slate-700 dark:text-white/60 truncate flex-1">{label}</span>
-                    {s.lastActiveAt && <span className="text-[11px] text-slate-400 dark:text-white/20 shrink-0">{new Date(s.lastActiveAt).toLocaleTimeString()}</span>}
+                    {(s.lastActiveAt || s.updatedAt) && <span className="text-[11px] text-slate-400 dark:text-white/35 shrink-0">{new Date(s.lastActiveAt || s.updatedAt).toLocaleTimeString()}</span>}
                   </div>
                 );
               })}
