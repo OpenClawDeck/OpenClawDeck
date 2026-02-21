@@ -500,3 +500,218 @@ func TestAuditLogRepo_List_WithFilters(t *testing.T) {
 	assert.Equal(t, int64(1), total)
 	assert.Equal(t, "user", logs[0].Username)
 }
+
+// ============== BackupRepo Tests ==============
+
+func TestBackupRepo_Create(t *testing.T) {
+	cleanup := setupTestDB(t)
+	defer cleanup()
+
+	repo := NewBackupRepo()
+	record := &BackupRecord{
+		Filename: "backup_20260221.zip",
+		FilePath: "/backups/backup_20260221.zip",
+		FileSize: 1024,
+		Trigger:  "manual",
+		Note:     "Test backup",
+	}
+
+	err := repo.Create(record)
+	assert.NoError(t, err)
+	assert.NotZero(t, record.ID)
+}
+
+func TestBackupRepo_List(t *testing.T) {
+	cleanup := setupTestDB(t)
+	defer cleanup()
+
+	repo := NewBackupRepo()
+	repo.Create(&BackupRecord{Filename: "backup1.zip", FilePath: "/b1", FileSize: 100, Trigger: "manual"})
+	repo.Create(&BackupRecord{Filename: "backup2.zip", FilePath: "/b2", FileSize: 200, Trigger: "auto"})
+
+	records, err := repo.List()
+	assert.NoError(t, err)
+	assert.Len(t, records, 2)
+}
+
+func TestBackupRepo_FindByID(t *testing.T) {
+	cleanup := setupTestDB(t)
+	defer cleanup()
+
+	repo := NewBackupRepo()
+	record := &BackupRecord{Filename: "findme.zip", FilePath: "/findme", FileSize: 500, Trigger: "manual"}
+	require.NoError(t, repo.Create(record))
+
+	found, err := repo.FindByID(record.ID)
+	assert.NoError(t, err)
+	assert.Equal(t, "findme.zip", found.Filename)
+}
+
+func TestBackupRepo_Delete(t *testing.T) {
+	cleanup := setupTestDB(t)
+	defer cleanup()
+
+	repo := NewBackupRepo()
+	record := &BackupRecord{Filename: "delete.zip", FilePath: "/delete", FileSize: 100, Trigger: "manual"}
+	require.NoError(t, repo.Create(record))
+
+	err := repo.Delete(record.ID)
+	assert.NoError(t, err)
+
+	_, err = repo.FindByID(record.ID)
+	assert.Error(t, err, "record should be deleted")
+}
+
+// ============== RiskRuleRepo Tests ==============
+
+func TestRiskRuleRepo_Create(t *testing.T) {
+	cleanup := setupTestDB(t)
+	defer cleanup()
+
+	repo := NewRiskRuleRepo()
+	rule := &RiskRule{
+		RuleID:   "test_rule_001",
+		Category: "security",
+		Risk:     "high",
+		Pattern:  "rm -rf",
+		Reason:   "Dangerous command",
+		Actions:  `["abort","notify"]`,
+		Enabled:  true,
+	}
+
+	err := repo.Create(rule)
+	assert.NoError(t, err)
+	assert.NotZero(t, rule.ID)
+}
+
+func TestRiskRuleRepo_FindByRuleID(t *testing.T) {
+	cleanup := setupTestDB(t)
+	defer cleanup()
+
+	repo := NewRiskRuleRepo()
+	rule := &RiskRule{RuleID: "find_rule", Category: "test", Risk: "low", Pattern: "test", Reason: "Test", Actions: "[]", Enabled: true}
+	require.NoError(t, repo.Create(rule))
+
+	found, err := repo.FindByRuleID("find_rule")
+	assert.NoError(t, err)
+	assert.Equal(t, "find_rule", found.RuleID)
+}
+
+func TestRiskRuleRepo_ListAll(t *testing.T) {
+	cleanup := setupTestDB(t)
+	defer cleanup()
+
+	repo := NewRiskRuleRepo()
+	repo.Create(&RiskRule{RuleID: "r1", Category: "a", Risk: "high", Pattern: "p1", Reason: "R1", Actions: "[]", Enabled: true})
+	repo.Create(&RiskRule{RuleID: "r2", Category: "b", Risk: "low", Pattern: "p2", Reason: "R2", Actions: "[]", Enabled: false})
+
+	rules, err := repo.ListAll()
+	assert.NoError(t, err)
+	assert.Len(t, rules, 2)
+}
+
+func TestRiskRuleRepo_ListEnabled(t *testing.T) {
+	cleanup := setupTestDB(t)
+	defer cleanup()
+
+	repo := NewRiskRuleRepo()
+	rule1 := &RiskRule{RuleID: "r1", Category: "a", Risk: "high", Pattern: "p1", Reason: "R1", Actions: "[]", Enabled: true}
+	rule2 := &RiskRule{RuleID: "r2", Category: "b", Risk: "low", Pattern: "p2", Reason: "R2", Actions: "[]", Enabled: true}
+	repo.Create(rule1)
+	repo.Create(rule2)
+
+	// Disable rule2 after creation (to bypass default:true)
+	repo.ToggleEnabled(rule2.ID, false)
+
+	rules, err := repo.ListEnabled()
+	assert.NoError(t, err)
+	assert.Len(t, rules, 1) // Only r1 is enabled
+}
+
+func TestRiskRuleRepo_ToggleEnabled(t *testing.T) {
+	cleanup := setupTestDB(t)
+	defer cleanup()
+
+	repo := NewRiskRuleRepo()
+	rule := &RiskRule{RuleID: "toggle", Category: "test", Risk: "low", Pattern: "test", Reason: "Test", Actions: "[]", Enabled: true}
+	require.NoError(t, repo.Create(rule))
+
+	// Disable
+	err := repo.ToggleEnabled(rule.ID, false)
+	assert.NoError(t, err)
+
+	updated, _ := repo.FindByID(rule.ID)
+	assert.False(t, updated.Enabled)
+
+	// Enable
+	repo.ToggleEnabled(rule.ID, true)
+	updated, _ = repo.FindByID(rule.ID)
+	assert.True(t, updated.Enabled)
+}
+
+func TestRiskRuleRepo_Delete_NonBuiltin(t *testing.T) {
+	cleanup := setupTestDB(t)
+	defer cleanup()
+
+	repo := NewRiskRuleRepo()
+	rule := &RiskRule{RuleID: "custom", Category: "test", Risk: "low", Pattern: "test", Reason: "Test", Actions: "[]", Enabled: true, BuiltIn: false}
+	require.NoError(t, repo.Create(rule))
+
+	err := repo.Delete(rule.ID)
+	assert.NoError(t, err)
+
+	_, err = repo.FindByID(rule.ID)
+	assert.Error(t, err)
+}
+
+func TestRiskRuleRepo_Delete_Builtin_Fails(t *testing.T) {
+	cleanup := setupTestDB(t)
+	defer cleanup()
+
+	repo := NewRiskRuleRepo()
+	rule := &RiskRule{RuleID: "builtin", Category: "test", Risk: "high", Pattern: "test", Reason: "Test", Actions: "[]", Enabled: true, BuiltIn: true}
+	require.NoError(t, repo.Create(rule))
+
+	// Delete should not affect builtin rules
+	repo.Delete(rule.ID)
+
+	found, err := repo.FindByID(rule.ID)
+	assert.NoError(t, err)
+	assert.NotNil(t, found, "builtin rule should not be deleted")
+}
+
+func TestRiskRuleRepo_Count(t *testing.T) {
+	cleanup := setupTestDB(t)
+	defer cleanup()
+
+	repo := NewRiskRuleRepo()
+
+	count, err := repo.Count()
+	assert.NoError(t, err)
+	assert.Equal(t, int64(0), count)
+
+	repo.Create(&RiskRule{RuleID: "r1", Category: "a", Risk: "high", Pattern: "p1", Reason: "R1", Actions: "[]", Enabled: true})
+	repo.Create(&RiskRule{RuleID: "r2", Category: "b", Risk: "low", Pattern: "p2", Reason: "R2", Actions: "[]", Enabled: false})
+
+	count, err = repo.Count()
+	assert.NoError(t, err)
+	assert.Equal(t, int64(2), count)
+}
+
+func TestRiskRuleRepo_CountEnabled(t *testing.T) {
+	cleanup := setupTestDB(t)
+	defer cleanup()
+
+	repo := NewRiskRuleRepo()
+	rule1 := &RiskRule{RuleID: "r1", Category: "a", Risk: "high", Pattern: "p1", Reason: "R1", Actions: "[]", Enabled: true}
+	rule2 := &RiskRule{RuleID: "r2", Category: "b", Risk: "low", Pattern: "p2", Reason: "R2", Actions: "[]", Enabled: true}
+	repo.Create(rule1)
+	repo.Create(rule2)
+
+	// Disable rule2 after creation (to bypass default:true)
+	repo.ToggleEnabled(rule2.ID, false)
+
+	count, err := repo.CountEnabled()
+	assert.NoError(t, err)
+	assert.Equal(t, int64(1), count) // Only r1 is enabled
+}
