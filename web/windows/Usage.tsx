@@ -94,6 +94,37 @@ function fmtDate(d: string): string {
   return d;
 }
 
+function fmtTimestamp(ts: string | number | undefined | null): string {
+  if (!ts) return '-';
+  const date = typeof ts === 'number' ? new Date(ts) : new Date(ts);
+  if (isNaN(date.getTime())) return String(ts);
+  const now = new Date();
+  const isToday = date.toDateString() === now.toDateString();
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const isYesterday = date.toDateString() === yesterday.toDateString();
+  const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  if (isToday) return time;
+  if (isYesterday) return `昨天 ${time}`;
+  return `${date.getMonth() + 1}/${date.getDate()} ${time}`;
+}
+
+function fmtRelativeTime(ts: string | number | undefined | null): string {
+  if (!ts) return '-';
+  const date = typeof ts === 'number' ? new Date(ts) : new Date(ts);
+  if (isNaN(date.getTime())) return String(ts);
+  const now = Date.now();
+  const diff = now - date.getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return '刚刚';
+  if (mins < 60) return `${mins}分钟前`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}小时前`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}天前`;
+  return `${date.getMonth() + 1}/${date.getDate()}`;
+}
+
 function getDateRange(range: DateRange, customStart: string, customEnd: string): { startDate: string; endDate: string } {
   const now = new Date();
   const end = now.toISOString().split('T')[0];
@@ -683,12 +714,14 @@ const Usage: React.FC<UsageProps> = ({ language }) => {
         )}
 
         {/* Models Tab */}
-        {totals && tab === 'models' && (
+        {totals && tab === 'models' && (() => {
+          const filteredModels = models.filter(m => (m.totals?.totalTokens || 0) > 0);
+          return (
           <div className="space-y-3 max-w-4xl mx-auto animate-in fade-in duration-300">
-            {models.length === 0 ? (
+            {filteredModels.length === 0 ? (
               <div className="text-center py-12 text-slate-400 dark:text-white/40 text-[11px]">{u.noData}</div>
             ) : (
-              models.map((m, i) => (
+              filteredModels.map((m, i) => (
                 <div key={i} className="rounded-2xl border border-slate-200/60 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-4">
                   <div className="flex items-center gap-3 mb-3">
                     <div className="w-3 h-3 rounded-full" style={{ background: MODEL_COLORS[i % MODEL_COLORS.length] }} />
@@ -708,17 +741,20 @@ const Usage: React.FC<UsageProps> = ({ language }) => {
               ))
             )}
           </div>
-        )}
+        );})()}
 
         {/* Sessions Tab */}
-        {totals && tab === 'sessions' && (
+        {totals && tab === 'sessions' && (() => {
+          const filteredSessions = sessions
+            .filter(s => (s.totals?.totalTokens || 0) > 0)
+            .sort((a, b) => (b.totals?.totalTokens || 0) - (a.totals?.totalTokens || 0))
+            .slice(0, 50);
+          return (
           <div className="space-y-2 max-w-4xl mx-auto animate-in fade-in duration-300">
-            {sessions.length === 0 ? (
+            {filteredSessions.length === 0 ? (
               <div className="text-center py-12 text-slate-400 dark:text-white/40 text-[11px]">{u.noData}</div>
             ) : (
-              sessions
-                .sort((a, b) => (b.totals?.totalTokens || 0) - (a.totals?.totalTokens || 0))
-                .slice(0, 50)
+              filteredSessions
                 .map((s, i) => (
                   <div key={s.key} className="rounded-xl border border-slate-200/60 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] px-4 py-3 hover:border-primary/30 transition-colors">
                     <div className="flex items-center gap-3">
@@ -726,7 +762,10 @@ const Usage: React.FC<UsageProps> = ({ language }) => {
                         {i + 1}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-[11px] font-bold dark:text-white/80 text-slate-700 truncate">{s.label || s.key}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-[11px] font-bold dark:text-white/80 text-slate-700 truncate">{s.label || s.key}</p>
+                          {s.lastActiveAt && <span className="text-[9px] text-slate-400 dark:text-white/30">{fmtRelativeTime(s.lastActiveAt)}</span>}
+                        </div>
                         <div className="flex gap-3 mt-0.5 text-[10px] text-slate-400 dark:text-white/35">
                           <span>{u.messages}: {s.messages?.total || 0}</span>
                           <span>{u.toolCalls}: {s.messages?.toolCalls || 0}</span>
@@ -760,7 +799,7 @@ const Usage: React.FC<UsageProps> = ({ language }) => {
                 ))
             )}
           </div>
-        )}
+        );})()}
 
         {/* Timeseries Tab */}
         {tab === 'timeseries' && (
@@ -781,19 +820,22 @@ const Usage: React.FC<UsageProps> = ({ language }) => {
                 <span className="material-symbols-outlined text-[20px] animate-spin mr-2">progress_activity</span>
                 <span className="text-[11px]">{u.timeseriesLoading}</span>
               </div>
-            ) : tsData && tsData.length > 0 ? (
+            ) : tsData && tsData.length > 0 ? (() => {
+              const filtered = tsData.filter((pt: any) => (pt.tokens || pt.value || 0) > 0);
+              const maxVal = Math.max(...filtered.map((p: any) => p.tokens || p.value || 1), 1);
+              return filtered.length > 0 ? (
               <div className="space-y-1">
-                {tsData.map((pt: any, i: number) => (
+                {filtered.map((pt: any, i: number) => (
                   <div key={i} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-white dark:bg-white/[0.02] border border-slate-200/40 dark:border-white/[0.04]">
-                    <span className="text-[10px] font-mono text-slate-400 dark:text-white/40 w-28 shrink-0">{pt.timestamp || pt.date || pt.t || `#${i}`}</span>
+                    <span className="text-[10px] font-mono text-slate-400 dark:text-white/40 w-32 shrink-0">{fmtTimestamp(pt.timestamp || pt.date || pt.t)}</span>
                     <div className="flex-1 h-1.5 rounded-full bg-slate-100 dark:bg-white/[0.04] overflow-hidden">
-                      <div className="h-full rounded-full bg-indigo-500" style={{ width: `${Math.min(100, ((pt.tokens || pt.value || 0) / Math.max(...tsData.map((p: any) => p.tokens || p.value || 1), 1)) * 100)}%` }} />
+                      <div className="h-full rounded-full bg-indigo-500" style={{ width: `${Math.min(100, ((pt.tokens || pt.value || 0) / maxVal) * 100)}%` }} />
                     </div>
                     <span className="text-[10px] font-mono font-bold text-slate-600 dark:text-white/60 w-16 text-right">{fmtTokens(pt.tokens || pt.value || 0)}</span>
                   </div>
                 ))}
               </div>
-            ) : (
+            ) : <div className="text-center py-16 text-slate-400 dark:text-white/40 text-[11px]">{u.timeseriesEmpty}</div>;})() : (
               <div className="text-center py-16 text-slate-400 dark:text-white/40 text-[11px]">{u.timeseriesEmpty}</div>
             )}
           </div>
@@ -818,14 +860,16 @@ const Usage: React.FC<UsageProps> = ({ language }) => {
                 <span className="material-symbols-outlined text-[20px] animate-spin mr-2">progress_activity</span>
                 <span className="text-[11px]">{u.logsLoading}</span>
               </div>
-            ) : logsData && logsData.length > 0 ? (
+            ) : logsData && logsData.length > 0 ? (() => {
+              const filtered = logsData.filter((log: any) => (log.tokens || 0) > 0 || log.error);
+              return filtered.length > 0 ? (
               <div className="space-y-1">
-                {logsData.map((log: any, i: number) => (
+                {filtered.map((log: any, i: number) => (
                   <div key={i} className="px-3 py-2 rounded-lg bg-white dark:bg-white/[0.02] border border-slate-200/40 dark:border-white/[0.04]">
                     <div className="flex items-center gap-2 text-[10px]">
-                      <span className="font-mono text-slate-400 dark:text-white/40">{log.timestamp || log.date || log.ts || ''}</span>
-                      {log.model && <span className="px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-500 font-bold">{log.model}</span>}
-                      {log.session && <span className="text-slate-400 dark:text-white/35 truncate max-w-[120px]">{log.session}</span>}
+                      <span className="font-mono text-slate-400 dark:text-white/40 w-32 shrink-0">{fmtTimestamp(log.timestamp || log.date || log.ts)}</span>
+                      {log.model && <span className="px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-500 font-bold truncate max-w-[100px]">{log.model}</span>}
+                      {log.session && <span className="text-slate-400 dark:text-white/35 truncate max-w-[100px]">{log.session}</span>}
                       <span className="ml-auto font-mono font-bold text-slate-600 dark:text-white/60">{fmtTokens(log.tokens || 0)}</span>
                       {log.cost != null && <span className="font-mono text-amber-500">{fmtCost(log.cost)}</span>}
                     </div>
@@ -833,7 +877,7 @@ const Usage: React.FC<UsageProps> = ({ language }) => {
                   </div>
                 ))}
               </div>
-            ) : (
+            ) : <div className="text-center py-16 text-slate-400 dark:text-white/40 text-[11px]">{u.noLogs}</div>;})() : (
               <div className="text-center py-16 text-slate-400 dark:text-white/40 text-[11px]">{u.noLogs}</div>
             )}
           </div>
