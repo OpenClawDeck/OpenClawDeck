@@ -615,7 +615,28 @@
     "last": "Last",
     "na": "n/a",
     "deleteAfterRun": "Delete after run",
-    "consecutiveErrors": "Consecutive Errors"
+    "consecutiveErrors": "Consecutive Errors",
+    
+    "schedulerHelp": "Scheduler configures automated tasks for AI agents, supporting interval, one-time, and Cron expression scheduling",
+    "noJobsHint": "Click 'New Job' to create your first scheduled task",
+    "selectJobHint": "Click a job card to view run history",
+    "noRunsHint": "After the job runs, execution records will appear here",
+    
+    "scheduleHelp": "Every: periodic | At: one-time | Cron: use Cron expression",
+    "sessionHelp": "Main: use agent's main session | Isolated: use independent session per run",
+    "payloadHelp": "System Event: trigger system-level event | Agent Turn: send message to agent",
+    
+    "jobAdded": "Job added",
+    "jobRemoved": "Job removed",
+    "jobToggled": "Job status updated",
+    "jobRunning": "Job is running",
+    "confirmRemove": "Remove this job?",
+    
+    "justNow": "just now",
+    "inMinutes": "min",
+    "inHours": "hr",
+    "minutesAgo": "min ago",
+    "hoursAgo": "hr ago"
   },
   "act": {
     "search": "Search sessions...",

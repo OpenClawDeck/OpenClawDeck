@@ -3,6 +3,7 @@ import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { Language } from '../types';
 import { getTranslation } from '../locales';
 import { gwApi } from '../services/api';
+import { useToast } from '../components/Toast';
 import CustomSelect from '../components/CustomSelect';
 
 interface SchedulerProps { language: Language; }
@@ -27,14 +28,15 @@ const DEFAULT_FORM: CronForm = {
   payloadKind: 'agentTurn', payloadText: '', deliveryMode: 'announce', deliveryChannel: 'last', deliveryTo: '', timeoutSeconds: '',
 };
 
-function fmtRelative(ms?: number) {
+// i18n-aware relative time formatting
+function fmtRelative(ms?: number, s?: any) {
   if (!ms || !Number.isFinite(ms)) return '-';
   const diff = ms - Date.now();
-  if (Math.abs(diff) < 60_000) return diff > 0 ? 'in <1m' : '<1m ago';
+  if (Math.abs(diff) < 60_000) return s?.justNow || (diff > 0 ? 'in <1m' : '<1m ago');
   const mins = Math.abs(Math.round(diff / 60_000));
-  if (mins < 60) return diff > 0 ? `in ${mins}m` : `${mins}m ago`;
+  if (mins < 60) return diff > 0 ? `${mins} ${s?.inMinutes || 'min'}` : `${mins} ${s?.minutesAgo || 'min ago'}`;
   const hrs = Math.round(mins / 60);
-  if (hrs < 24) return diff > 0 ? `in ${hrs}h` : `${hrs}h ago`;
+  if (hrs < 24) return diff > 0 ? `${hrs} ${s?.inHours || 'hr'}` : `${hrs} ${s?.hoursAgo || 'hr ago'}`;
   return new Date(ms).toLocaleString();
 }
 
@@ -61,6 +63,7 @@ function fmtPayload(job: any) {
 const Scheduler: React.FC<SchedulerProps> = ({ language }) => {
   const t = useMemo(() => getTranslation(language), [language]);
   const s = (t as any).sch as any;
+  const { toast } = useToast();
 
   const [status, setStatus] = useState<any>(null);
   const [jobs, setJobs] = useState<any[]>([]);
@@ -131,36 +134,59 @@ const Scheduler: React.FC<SchedulerProps> = ({ language }) => {
       setForm({ ...DEFAULT_FORM });
       setShowForm(false);
       await loadAll();
-    } catch (e: any) { setError(String(e)); }
+      toast('success', s.jobAdded);
+    } catch (e: any) { 
+      setError(String(e)); 
+      toast('error', String(e));
+    }
     setBusy(false);
-  }, [busy, form, loadAll]);
+  }, [busy, form, loadAll, toast, s]);
 
   const toggleJob = useCallback(async (job: any) => {
     if (busy) return;
     setBusy(true); setError(null);
-    try { await gwApi.cronUpdate(job.id, { enabled: !job.enabled }); await loadAll(); }
-    catch (e: any) { setError(String(e)); }
+    try { 
+      await gwApi.cronUpdate(job.id, { enabled: !job.enabled }); 
+      await loadAll(); 
+      toast('success', s.jobToggled);
+    }
+    catch (e: any) { 
+      setError(String(e)); 
+      toast('error', String(e));
+    }
     setBusy(false);
-  }, [busy, loadAll]);
+  }, [busy, loadAll, toast, s]);
 
   const runJob = useCallback(async (job: any) => {
     if (busy) return;
     setBusy(true); setError(null);
-    try { await gwApi.cronRun(job.id); await loadRuns(job.id); }
-    catch (e: any) { setError(String(e)); }
+    try { 
+      await gwApi.cronRun(job.id); 
+      await loadRuns(job.id); 
+      toast('success', s.jobRunning);
+    }
+    catch (e: any) { 
+      setError(String(e)); 
+      toast('error', String(e));
+    }
     setBusy(false);
-  }, [busy]);
+  }, [busy, toast, s]);
 
   const removeJob = useCallback(async (job: any) => {
     if (busy) return;
+    if (!confirm(s.confirmRemove)) return;
     setBusy(true); setError(null);
     try {
       await gwApi.cronRemove(job.id);
       if (runsJobId === job.id) { setRunsJobId(null); setRuns([]); }
       await loadAll();
-    } catch (e: any) { setError(String(e)); }
+      toast('success', s.jobRemoved);
+    } catch (e: any) { 
+      setError(String(e)); 
+      toast('error', String(e));
+    }
     setBusy(false);
-  }, [busy, runsJobId, loadAll]);
+  }, [busy, runsJobId, loadAll, toast, s]);
 
   const loadRuns = useCallback(async (jobId: string) => {
     try {
@@ -175,17 +201,18 @@ const Scheduler: React.FC<SchedulerProps> = ({ language }) => {
 
   return (
     <main className="flex-1 overflow-y-auto p-4 md:p-5 custom-scrollbar bg-slate-50/50 dark:bg-transparent">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h1 className="text-base font-bold dark:text-white/90 text-slate-800">{s.title}</h1>
-          <p className="text-[10px] text-slate-400 dark:text-white/35 mt-0.5">{s.desc}</p>
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+        <div className="flex-1 min-w-0">
+          <h1 className="text-base font-bold dark:text-white text-slate-800">{s.title}</h1>
+          <p className="text-[10px] text-slate-400 dark:text-white/35 mt-0.5">{s.schedulerHelp || s.desc}</p>
         </div>
-        <div className="flex gap-2">
-          <button onClick={() => setShowForm(!showForm)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-white text-[11px] font-bold hover:bg-blue-600 transition-all">
+        <div className="flex gap-2 shrink-0">
+          <button onClick={() => setShowForm(!showForm)} className="h-8 flex items-center gap-1.5 px-3 rounded-lg bg-primary text-white text-[11px] font-bold hover:bg-blue-600 transition-all">
             <span className="material-symbols-outlined text-[14px]">{showForm ? 'close' : 'add'}</span>
-            {s.newJob}
+            <span className="hidden sm:inline">{s.newJob}</span>
           </button>
-          <button onClick={loadAll} disabled={loading} className="p-1.5 rounded-lg text-slate-400 hover:text-primary hover:bg-primary/5 transition-all disabled:opacity-40">
+          <button onClick={loadAll} disabled={loading} className="h-8 w-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-primary hover:bg-primary/5 transition-all disabled:opacity-40" title={s.refresh}>
             <span className={`material-symbols-outlined text-[18px] ${loading ? 'animate-spin' : ''}`}>refresh</span>
           </button>
         </div>
@@ -213,7 +240,7 @@ const Scheduler: React.FC<SchedulerProps> = ({ language }) => {
               </div>
               <div className="rounded-xl bg-slate-50 dark:bg-white/[0.03] border border-slate-100 dark:border-white/5 p-3 text-center">
                 <p className="text-[11px] font-bold text-slate-400 dark:text-white/40 uppercase">{s.nextWake}</p>
-                <p className="text-[10px] font-bold text-primary mt-0.5">{fmtRelative(status?.nextWakeAtMs)}</p>
+                <p className="text-[10px] font-bold text-primary mt-0.5">{fmtRelative(status?.nextWakeAtMs, s)}</p>
               </div>
             </div>
           </div>
@@ -357,7 +384,11 @@ const Scheduler: React.FC<SchedulerProps> = ({ language }) => {
             {s.jobs} ({jobs.length})
           </h3>
           {jobs.length === 0 ? (
-            <p className="text-[10px] text-slate-400 dark:text-white/20 py-6 text-center">{s.noJobs}</p>
+            <div className="flex flex-col items-center justify-center py-10 text-slate-400 dark:text-white/30">
+              <span className="material-symbols-outlined text-4xl mb-3">schedule</span>
+              <p className="text-sm font-bold mb-1">{s.noJobs}</p>
+              <p className="text-[11px] text-center">{s.noJobsHint}</p>
+            </div>
           ) : (
             <div className="space-y-2">
               {jobs.map((job: any) => {
@@ -392,8 +423,8 @@ const Scheduler: React.FC<SchedulerProps> = ({ language }) => {
                           <span className="text-slate-400 dark:text-white/35">{s.status}: </span>
                           <span className={`font-bold ${lastStatus === 'ok' ? 'text-mac-green' : lastStatus === 'error' ? 'text-mac-red' : 'text-slate-400'}`}>{lastStatus || s.na}</span>
                         </div>
-                        <div className="text-[11px] text-slate-400 dark:text-white/35">{s.nextRun}: {fmtRelative(job.state?.nextRunAtMs)}</div>
-                        <div className="text-[11px] text-slate-400 dark:text-white/35">{s.last}: {fmtRelative(job.state?.lastRunAtMs)}</div>
+                        <div className="text-[11px] text-slate-400 dark:text-white/35">{s.nextRun}: {fmtRelative(job.state?.nextRunAtMs, s)}</div>
+                        <div className="text-[11px] text-slate-400 dark:text-white/35">{s.last}: {fmtRelative(job.state?.lastRunAtMs, s)}</div>
                         {job.state?.consecutiveErrors > 0 && (
                           <div className="text-[11px] text-mac-red font-bold">{s.consecutiveErrors}: {job.state.consecutiveErrors}</div>
                         )}
@@ -422,9 +453,17 @@ const Scheduler: React.FC<SchedulerProps> = ({ language }) => {
             {selectedJobName && <span className="text-[11px] font-normal text-slate-400 dark:text-white/35">— {selectedJobName}</span>}
           </h3>
           {!runsJobId ? (
-            <p className="text-[10px] text-slate-400 dark:text-white/20 py-6 text-center">{s.selectJob}</p>
+            <div className="flex flex-col items-center justify-center py-8 text-slate-400 dark:text-white/30">
+              <span className="material-symbols-outlined text-3xl mb-2">touch_app</span>
+              <p className="text-[11px] font-bold mb-1">{s.selectJob}</p>
+              <p className="text-[10px] text-center">{s.selectJobHint}</p>
+            </div>
           ) : sortedRuns.length === 0 ? (
-            <p className="text-[10px] text-slate-400 dark:text-white/20 py-6 text-center">{s.noRuns}</p>
+            <div className="flex flex-col items-center justify-center py-8 text-slate-400 dark:text-white/30">
+              <span className="material-symbols-outlined text-3xl mb-2">history</span>
+              <p className="text-[11px] font-bold mb-1">{s.noRuns}</p>
+              <p className="text-[10px] text-center">{s.noRunsHint}</p>
+            </div>
           ) : (
             <div className="space-y-1.5">
               {sortedRuns.slice(0, 20).map((run: any, i: number) => (

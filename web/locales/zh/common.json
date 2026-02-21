@@ -615,7 +615,28 @@
     "last": "上次",
     "na": "无",
     "deleteAfterRun": "运行后删除",
-    "consecutiveErrors": "连续失败"
+    "consecutiveErrors": "连续失败",
+    
+    "schedulerHelp": "定时调度用于配置 AI 代理的自动执行任务，支持周期性、定时和 Cron 表达式三种调度方式",
+    "noJobsHint": "点击「新建任务」创建您的第一个定时任务",
+    "selectJobHint": "点击任务卡片查看运行历史",
+    "noRunsHint": "任务运行后，执行记录会在此处显示",
+    
+    "scheduleHelp": "每隔: 周期性执行 | 定时: 单次执行 | Cron: 使用 Cron 表达式",
+    "sessionHelp": "主会话: 使用代理的主会话 | 隔离会话: 每次运行使用独立会话",
+    "payloadHelp": "系统事件: 触发系统级事件 | 代理消息: 向代理发送消息",
+    
+    "jobAdded": "任务已添加",
+    "jobRemoved": "任务已删除",
+    "jobToggled": "任务状态已更新",
+    "jobRunning": "任务正在运行",
+    "confirmRemove": "确定删除此任务？",
+    
+    "justNow": "刚刚",
+    "inMinutes": "分钟后",
+    "inHours": "小时后",
+    "minutesAgo": "分钟前",
+    "hoursAgo": "小时前"
   },
   "act": {
     "search": "搜索会话...",
