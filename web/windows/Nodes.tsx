@@ -83,6 +83,22 @@ interface BindingAgent {
 
 type TabId = 'nodes' | 'devices' | 'bindings';
 
+// Relative time formatting with i18n support
+function fmtRelativeTime(seconds?: number | null, nd?: any): string {
+  if (seconds == null || seconds < 0) return '-';
+  if (seconds < 60) return nd?.justNow || 'just now';
+  if (seconds < 3600) {
+    const mins = Math.floor(seconds / 60);
+    return `${mins} ${nd?.minutesAgo || 'min ago'}`;
+  }
+  if (seconds < 86400) {
+    const hrs = Math.floor(seconds / 3600);
+    return `${hrs} ${nd?.hoursAgo || 'hr ago'}`;
+  }
+  const days = Math.floor(seconds / 86400);
+  return `${days} ${nd?.daysAgo || 'days ago'}`;
+}
+
 function fmtAge(seconds?: number | null): string {
   if (seconds == null || seconds < 0) return '-';
   if (seconds < 60) return `${Math.floor(seconds)}s`;
@@ -96,6 +112,19 @@ function fmtTs(ms?: number | null): string {
   return new Date(ms).toLocaleString();
 }
 
+// Truncate long IDs with ellipsis
+function truncateId(id: string, maxLen = 16): string {
+  if (id.length <= maxLen) return id;
+  return id.slice(0, maxLen - 3) + '...';
+}
+
+// Check if node is online (last activity within 5 minutes)
+function isNodeOnline(node: NodeEntry): boolean {
+  return node.lastInputSeconds != null && node.lastInputSeconds < 300;
+}
+
+type NodeFilter = 'all' | 'online' | 'offline';
+
 const Nodes: React.FC<NodesProps> = ({ language }) => {
   const t = useMemo(() => getTranslation(language), [language]);
   const nd = (t as any).nd;
@@ -106,6 +135,13 @@ const Nodes: React.FC<NodesProps> = ({ language }) => {
   const [nodesLoading, setNodesLoading] = useState(true);
   const [pending, setPending] = useState<PendingDevice[]>([]);
   const [paired, setPaired] = useState<PairedDevice[]>([]);
+  
+  // Search and filter state
+  const [nodeSearch, setNodeSearch] = useState('');
+  const [nodeFilter, setNodeFilter] = useState<NodeFilter>('all');
+  const [deviceSearch, setDeviceSearch] = useState('');
+  const [showEventLog, setShowEventLog] = useState(false);
+  const [showPairFlow, setShowPairFlow] = useState(false);
   const [devicesLoading, setDevicesLoading] = useState(false);
   const [devicesError, setDevicesError] = useState('');
   // Node pair state
@@ -166,6 +202,55 @@ const Nodes: React.FC<NodesProps> = ({ language }) => {
     } catch (e: any) { setError(String(e)); }
     finally { setNodesLoading(false); }
   }, []);
+
+  // Filtered nodes based on search and filter
+  const filteredNodes = useMemo(() => {
+    let result = nodes;
+    // Apply search filter
+    if (nodeSearch.trim()) {
+      const search = nodeSearch.toLowerCase();
+      result = result.filter(n => 
+        n.id.toLowerCase().includes(search) ||
+        n.host?.toLowerCase().includes(search) ||
+        n.ip?.toLowerCase().includes(search) ||
+        n.platform?.toLowerCase().includes(search)
+      );
+    }
+    // Apply online/offline filter
+    if (nodeFilter === 'online') {
+      result = result.filter(isNodeOnline);
+    } else if (nodeFilter === 'offline') {
+      result = result.filter(n => !isNodeOnline(n));
+    }
+    return result;
+  }, [nodes, nodeSearch, nodeFilter]);
+
+  // Filtered devices based on search
+  const filteredPending = useMemo(() => {
+    if (!deviceSearch.trim()) return pending;
+    const search = deviceSearch.toLowerCase();
+    return pending.filter(d => 
+      d.deviceId.toLowerCase().includes(search) ||
+      d.displayName?.toLowerCase().includes(search) ||
+      d.remoteIp?.toLowerCase().includes(search)
+    );
+  }, [pending, deviceSearch]);
+
+  const filteredPaired = useMemo(() => {
+    if (!deviceSearch.trim()) return paired;
+    const search = deviceSearch.toLowerCase();
+    return paired.filter(d => 
+      d.deviceId.toLowerCase().includes(search) ||
+      d.displayName?.toLowerCase().includes(search) ||
+      d.remoteIp?.toLowerCase().includes(search)
+    );
+  }, [paired, deviceSearch]);
+
+  // Copy to clipboard helper
+  const copyToClipboard = useCallback((text: string) => {
+    navigator.clipboard.writeText(text);
+    toast('success', nd.copied);
+  }, [toast, nd]);
 
   const fetchDevices = useCallback(async () => {
     setDevicesLoading(true); setDevicesError('');
@@ -288,35 +373,81 @@ const Nodes: React.FC<NodesProps> = ({ language }) => {
   useEffect(() => { if (tab === 'bindings' && !config) fetchConfig(); }, [tab, config, fetchConfig]);
 
   const handleApprove = useCallback(async (requestId: string) => {
-    try { await gwApi.devicePairApprove(requestId); fetchDevices(); } catch (e: any) { setDevicesError(String(e)); }
-  }, [fetchDevices]);
+    try { 
+      await gwApi.devicePairApprove(requestId); 
+      toast('success', nd.approved);
+      fetchDevices(); 
+    } catch (e: any) { 
+      toast('error', String(e));
+      setDevicesError(String(e)); 
+    }
+  }, [fetchDevices, toast, nd]);
 
   const handleReject = useCallback(async (requestId: string) => {
     if (!confirm(nd.confirmReject)) return;
-    try { await gwApi.devicePairReject(requestId); fetchDevices(); } catch (e: any) { setDevicesError(String(e)); }
-  }, [fetchDevices, nd]);
+    try { 
+      await gwApi.devicePairReject(requestId); 
+      toast('success', nd.rejected);
+      fetchDevices(); 
+    } catch (e: any) { 
+      toast('error', String(e));
+      setDevicesError(String(e)); 
+    }
+  }, [fetchDevices, nd, toast]);
 
   const handleNodePairApprove = useCallback(async (nodeId: string) => {
-    try { await gwApi.nodePairApprove(nodeId); fetchDevices(); } catch (e: any) { setDevicesError(String(e)); }
-  }, [fetchDevices]);
+    try { 
+      await gwApi.nodePairApprove(nodeId); 
+      toast('success', nd.approved);
+      fetchDevices(); 
+    } catch (e: any) { 
+      toast('error', String(e));
+      setDevicesError(String(e)); 
+    }
+  }, [fetchDevices, toast, nd]);
 
   const handleNodePairReject = useCallback(async (nodeId: string) => {
     if (!confirm(nd.confirmReject)) return;
-    try { await gwApi.nodePairReject(nodeId); fetchDevices(); } catch (e: any) { setDevicesError(String(e)); }
-  }, [fetchDevices, nd]);
+    try { 
+      await gwApi.nodePairReject(nodeId); 
+      toast('success', nd.rejected);
+      fetchDevices(); 
+    } catch (e: any) { 
+      toast('error', String(e));
+      setDevicesError(String(e)); 
+    }
+  }, [fetchDevices, nd, toast]);
 
   const handleRotate = useCallback(async (deviceId: string, role: string, scopes?: string[]) => {
     try {
       const res = await gwApi.deviceTokenRotate(deviceId, role, scopes) as any;
-      if (res?.token) prompt(nd.newTokenPrompt, res.token);
+      if (res?.token) {
+        await navigator.clipboard.writeText(res.token);
+        toast('success', nd.tokenRotated + ' - ' + nd.copied);
+      }
       fetchDevices();
-    } catch (e: any) { setDevicesError(String(e)); }
-  }, [fetchDevices]);
+    } catch (e: any) { 
+      toast('error', String(e));
+      setDevicesError(String(e)); 
+    }
+  }, [fetchDevices, toast, nd]);
 
   const handleRevoke = useCallback(async (deviceId: string, role: string) => {
     if (!confirm(nd.confirmRevoke)) return;
-    try { await gwApi.deviceTokenRevoke(deviceId, role); fetchDevices(); } catch (e: any) { setDevicesError(String(e)); }
-  }, [fetchDevices, nd]);
+    try { 
+      await gwApi.deviceTokenRevoke(deviceId, role); 
+      toast('success', nd.revoked);
+      fetchDevices(); 
+    } catch (e: any) { 
+      toast('error', String(e));
+      setDevicesError(String(e)); 
+    }
+  }, [fetchDevices, nd, toast]);
+
+  // Clear event log
+  const clearEventLog = useCallback(() => {
+    setEventLog([]);
+  }, []);
 
   // Bindings
   const agentsList = useMemo(() => {
@@ -398,17 +529,56 @@ const Nodes: React.FC<NodesProps> = ({ language }) => {
           {/* ===== NODES TAB ===== */}
           {tab === 'nodes' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
+              {/* Header with title and refresh */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex-1 min-w-0">
                   <h2 className="text-sm font-bold text-slate-800 dark:text-white">{nd.nodesSection}</h2>
-                  <p className="text-[10px] text-slate-400 dark:text-white/40 mt-0.5">{nd.desc}</p>
+                  <p className="text-[10px] text-slate-400 dark:text-white/40 mt-0.5">{nd.nodesHelp || nd.desc}</p>
                 </div>
                 <button onClick={fetchNodes} disabled={nodesLoading}
-                  className="h-8 px-3 flex items-center gap-1.5 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 border border-slate-200 dark:border-white/10 rounded-lg text-[11px] font-bold text-slate-600 dark:text-white/70 disabled:opacity-50">
+                  className="h-8 px-3 flex items-center gap-1.5 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 border border-slate-200 dark:border-white/10 rounded-lg text-[11px] font-bold text-slate-600 dark:text-white/70 disabled:opacity-50 shrink-0">
                   <span className={`material-symbols-outlined text-[14px] ${nodesLoading ? 'animate-spin' : ''}`}>{nodesLoading ? 'progress_activity' : 'refresh'}</span>
-                  {nd.refresh}
+                  <span className="hidden sm:inline">{nd.refresh}</span>
                 </button>
               </div>
+
+              {/* Search and Filter Bar */}
+              {nodes.length > 0 && (
+                <div className="flex flex-col sm:flex-row gap-2">
+                  {/* Search Input */}
+                  <div className="relative flex-1">
+                    <span className="material-symbols-outlined text-[16px] text-slate-400 dark:text-white/30 absolute left-3 top-1/2 -translate-y-1/2">search</span>
+                    <input
+                      type="text"
+                      value={nodeSearch}
+                      onChange={e => setNodeSearch(e.target.value)}
+                      placeholder={nd.searchNodes}
+                      className="w-full h-9 pl-9 pr-3 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg text-[12px] text-slate-700 dark:text-white/80 placeholder:text-slate-400 dark:placeholder:text-white/30 outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20 transition-all"
+                    />
+                    {nodeSearch && (
+                      <button onClick={() => setNodeSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-white/60">
+                        <span className="material-symbols-outlined text-[14px]">close</span>
+                      </button>
+                    )}
+                  </div>
+                  {/* Filter Buttons */}
+                  <div className="flex bg-slate-100 dark:bg-white/5 rounded-lg p-0.5 shrink-0">
+                    {(['all', 'online', 'offline'] as NodeFilter[]).map(f => (
+                      <button
+                        key={f}
+                        onClick={() => setNodeFilter(f)}
+                        className={`px-3 py-1.5 rounded-md text-[11px] font-bold transition-all ${
+                          nodeFilter === f
+                            ? 'bg-white dark:bg-primary text-slate-800 dark:text-white shadow-sm'
+                            : 'text-slate-500 dark:text-white/50 hover:text-slate-700 dark:hover:text-white/70'
+                        }`}
+                      >
+                        {f === 'all' ? nd.all : f === 'online' ? nd.onlineOnly : nd.offlineOnly}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {error && (
                 <div className="flex items-center gap-2 p-3 bg-mac-red/10 border border-mac-red/20 rounded-xl text-[11px] text-mac-red font-bold">
@@ -417,30 +587,40 @@ const Nodes: React.FC<NodesProps> = ({ language }) => {
               )}
 
               {nodesLoading && nodes.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+                <div className="flex flex-col items-center justify-center py-20 text-slate-400 dark:text-white/40">
                   <span className="material-symbols-outlined text-4xl animate-spin mb-3">progress_activity</span>
                   <span className="text-xs">{nd.loading}</span>
                 </div>
               )}
 
               {!nodesLoading && nodes.length === 0 && !error && (
-                <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+                <div className="flex flex-col items-center justify-center py-16 text-slate-400 dark:text-white/40">
                   <span className="material-symbols-outlined text-5xl mb-4 text-primary/20">hub</span>
-                  <span className="text-xs font-bold">{nd.noNodes}</span>
+                  <span className="text-sm font-bold mb-2">{nd.noNodes}</span>
+                  <span className="text-[11px] text-center max-w-xs">{nd.noNodesHint}</span>
+                </div>
+              )}
+
+              {/* No results after filtering */}
+              {!nodesLoading && nodes.length > 0 && filteredNodes.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-12 text-slate-400 dark:text-white/40">
+                  <span className="material-symbols-outlined text-4xl mb-3 text-slate-300 dark:text-white/20">search_off</span>
+                  <span className="text-xs">{nd.noNodes}</span>
                 </div>
               )}
 
               {/* 节点列表 */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {nodes.map((node, i) => {
+                {filteredNodes.map((node, i) => {
                   const isSelected = selectedNode?.id === node.id;
+                  const online = isNodeOnline(node);
                   return (
                     <div key={node.id || i} onClick={() => handleSelectNode(node)}
-                      className={`relative bg-slate-50 dark:bg-white/[0.02] border rounded-2xl p-4 cursor-pointer transition-all group shadow-sm hover:shadow-md ${isSelected ? 'border-primary ring-1 ring-primary/20' : 'border-slate-200 dark:border-white/10 hover:border-primary/40'
+                      className={`relative bg-slate-50 dark:bg-white/[0.02] border rounded-2xl p-3 sm:p-4 cursor-pointer transition-all group shadow-sm hover:shadow-md ${isSelected ? 'border-primary ring-1 ring-primary/20' : 'border-slate-200 dark:border-white/10 hover:border-primary/40'
                         }`}>
-                      {/* 在线指示灯 */}
-                      <div className="absolute top-3 right-3">
-                        <div className={`w-2.5 h-2.5 rounded-full ${node.lastInputSeconds != null && node.lastInputSeconds < 300 ? 'bg-mac-green animate-pulse' : 'bg-slate-300 dark:bg-white/20'}`} />
+                      {/* 在线指示灯 with tooltip */}
+                      <div className="absolute top-3 right-3 group/status" title={online ? nd.online : nd.offline}>
+                        <div className={`w-2.5 h-2.5 rounded-full ${online ? 'bg-mac-green animate-pulse' : 'bg-slate-300 dark:bg-white/20'}`} />
                       </div>
 
                       <div className="flex items-center gap-3 mb-3">
@@ -461,10 +641,19 @@ const Nodes: React.FC<NodesProps> = ({ language }) => {
                             </div>
                           ) : (
                             <h4 className="font-bold text-[13px] text-slate-800 dark:text-white truncate" onDoubleClick={e => { e.stopPropagation(); setRenameNodeId(node.id); setRenameName(node.host || ''); }}>
-                              {node.host || node.id}
+                              {node.host || truncateId(node.id, 20)}
                             </h4>
                           )}
-                          <p className="text-[10px] text-slate-400 dark:text-white/40 font-mono truncate">{node.id}</p>
+                          <p className="text-[10px] text-slate-400 dark:text-white/40 font-mono truncate flex items-center gap-1 group/id">
+                            <span title={node.id}>{truncateId(node.id, 24)}</span>
+                            <button 
+                              onClick={e => { e.stopPropagation(); copyToClipboard(node.id); }}
+                              className="opacity-0 group-hover/id:opacity-100 transition-opacity"
+                              title={nd.copyId}
+                            >
+                              <span className="material-symbols-outlined text-[12px] hover:text-primary">content_copy</span>
+                            </button>
+                          </p>
                         </div>
                       </div>
 
@@ -604,53 +793,113 @@ const Nodes: React.FC<NodesProps> = ({ language }) => {
 
           {/* ===== DEVICES TAB ===== */}
           {tab === 'devices' && (
-            <div className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div>
+            <div className="space-y-4">
+              {/* Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex-1 min-w-0">
                   <h2 className="text-sm font-bold text-slate-800 dark:text-white">{nd.devicesSection}</h2>
-                  <p className="text-[10px] text-slate-400 dark:text-white/40 mt-0.5">{nd.desc}</p>
+                  <p className="text-[10px] text-slate-400 dark:text-white/40 mt-0.5">{nd.devicesHelp || nd.desc}</p>
                 </div>
-                <button onClick={fetchDevices} disabled={devicesLoading}
-                  className="h-8 px-3 flex items-center gap-1.5 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 border border-slate-200 dark:border-white/10 rounded-lg text-[11px] font-bold text-slate-600 dark:text-white/70 disabled:opacity-50">
-                  <span className={`material-symbols-outlined text-[14px] ${devicesLoading ? 'animate-spin' : ''}`}>{devicesLoading ? 'progress_activity' : 'refresh'}</span>
-                  {nd.refresh}
-                </button>
+                <div className="flex gap-2 shrink-0">
+                  <button onClick={() => setShowPairFlow(!showPairFlow)}
+                    className={`h-8 px-3 flex items-center gap-1.5 border rounded-lg text-[11px] font-bold transition-all ${
+                      showPairFlow 
+                        ? 'bg-primary/10 border-primary/30 text-primary' 
+                        : 'bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/70 hover:bg-slate-200 dark:hover:bg-white/10'
+                    }`}>
+                    <span className="material-symbols-outlined text-[14px]">help_outline</span>
+                    <span className="hidden sm:inline">{nd.pairFlow}</span>
+                  </button>
+                  <button onClick={fetchDevices} disabled={devicesLoading}
+                    className="h-8 px-3 flex items-center gap-1.5 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 border border-slate-200 dark:border-white/10 rounded-lg text-[11px] font-bold text-slate-600 dark:text-white/70 disabled:opacity-50">
+                    <span className={`material-symbols-outlined text-[14px] ${devicesLoading ? 'animate-spin' : ''}`}>{devicesLoading ? 'progress_activity' : 'refresh'}</span>
+                    <span className="hidden sm:inline">{nd.refresh}</span>
+                  </button>
+                </div>
               </div>
+
+              {/* Pairing Flow Guide */}
+              {showPairFlow && (
+                <div className="bg-gradient-to-r from-primary/5 to-sky-500/5 dark:from-primary/10 dark:to-sky-500/10 border border-primary/20 dark:border-primary/30 rounded-xl p-4">
+                  <h3 className="text-[12px] font-bold text-primary dark:text-primary mb-3 flex items-center gap-2">
+                    <span className="material-symbols-outlined text-[16px]">route</span>
+                    {nd.pairFlow}
+                  </h3>
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    {[
+                      { step: 1, icon: 'devices', text: nd.pairStep1 },
+                      { step: 2, icon: 'pending_actions', text: nd.pairStep2 },
+                      { step: 3, icon: 'check_circle', text: nd.pairStep3 },
+                    ].map((item, idx) => (
+                      <div key={item.step} className="flex-1 flex items-start gap-2">
+                        <div className="w-6 h-6 rounded-full bg-primary/20 dark:bg-primary/30 flex items-center justify-center shrink-0">
+                          <span className="text-[11px] font-bold text-primary">{item.step}</span>
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-[11px] text-slate-600 dark:text-white/70">{item.text}</p>
+                        </div>
+                        {idx < 2 && <span className="material-symbols-outlined text-[16px] text-slate-300 dark:text-white/20 hidden sm:block self-center">arrow_forward</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Search Bar */}
+              {(pending.length > 0 || paired.length > 0) && (
+                <div className="relative">
+                  <span className="material-symbols-outlined text-[16px] text-slate-400 dark:text-white/30 absolute left-3 top-1/2 -translate-y-1/2">search</span>
+                  <input
+                    type="text"
+                    value={deviceSearch}
+                    onChange={e => setDeviceSearch(e.target.value)}
+                    placeholder={nd.searchDevices}
+                    className="w-full h-9 pl-9 pr-3 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg text-[12px] text-slate-700 dark:text-white/80 placeholder:text-slate-400 dark:placeholder:text-white/30 outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20 transition-all"
+                  />
+                  {deviceSearch && (
+                    <button onClick={() => setDeviceSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-white/60">
+                      <span className="material-symbols-outlined text-[14px]">close</span>
+                    </button>
+                  )}
+                </div>
+              )}
 
               {/* Pair Request + Verify */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="rounded-xl bg-white dark:bg-white/[0.03] border border-slate-200/60 dark:border-white/[0.06] p-3 space-y-2">
-                  <h3 className="text-[10px] font-bold text-slate-500 dark:text-white/40 uppercase flex items-center gap-1">
+                  <h3 className="text-[10px] font-bold text-slate-500 dark:text-white/40 uppercase flex items-center gap-1" title={nd.pairRequestHelp}>
                     <span className="material-symbols-outlined text-[12px]">add_link</span>{nd.pairRequest}
+                    <span className="material-symbols-outlined text-[10px] text-slate-300 dark:text-white/20 ml-auto cursor-help">info</span>
                   </h3>
                   <input value={pairNodeId} onChange={e => setPairNodeId(e.target.value)} placeholder={nd.pairNodeId}
-                    className="w-full h-7 px-2 bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-lg text-[10px] font-mono text-slate-700 dark:text-white/70 outline-none" />
+                    className="w-full h-8 px-2.5 bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-lg text-[11px] font-mono text-slate-700 dark:text-white/70 outline-none focus:border-primary/50" />
                   <input value={pairName} onChange={e => setPairName(e.target.value)} placeholder={nd.pairDisplayName}
-                    className="w-full h-7 px-2 bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-lg text-[10px] text-slate-700 dark:text-white/70 outline-none" />
+                    className="w-full h-8 px-2.5 bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-lg text-[11px] text-slate-700 dark:text-white/70 outline-none focus:border-primary/50" />
                   <button onClick={handlePairRequest} disabled={pairing || !pairNodeId.trim()}
-                    className="h-7 px-3 bg-primary text-white text-[10px] font-bold rounded-lg disabled:opacity-40 flex items-center gap-1">
-                    <span className="material-symbols-outlined text-[12px]">{pairing ? 'progress_activity' : 'link'}</span>
+                    className="w-full h-8 bg-primary text-white text-[11px] font-bold rounded-lg disabled:opacity-40 flex items-center justify-center gap-1.5 hover:bg-primary/90 transition-colors">
+                    <span className="material-symbols-outlined text-[14px]">{pairing ? 'progress_activity' : 'link'}</span>
                     {pairing ? nd.pairRequesting : nd.pairRequest}
                   </button>
                   {pairResult && (
-                    <div className={`px-2 py-1 rounded-lg text-[10px] ${pairResult.ok ? 'bg-mac-green/10 text-mac-green' : 'bg-red-50 dark:bg-red-500/5 text-red-500'}`}>{pairResult.text}</div>
+                    <div className={`px-2.5 py-1.5 rounded-lg text-[11px] ${pairResult.ok ? 'bg-mac-green/10 text-mac-green' : 'bg-red-50 dark:bg-red-500/5 text-red-500'}`}>{pairResult.text}</div>
                   )}
                 </div>
                 <div className="rounded-xl bg-white dark:bg-white/[0.03] border border-slate-200/60 dark:border-white/[0.06] p-3 space-y-2">
-                  <h3 className="text-[10px] font-bold text-slate-500 dark:text-white/40 uppercase flex items-center gap-1">
+                  <h3 className="text-[10px] font-bold text-slate-500 dark:text-white/40 uppercase flex items-center gap-1" title={nd.pairVerifyHelp}>
                     <span className="material-symbols-outlined text-[12px]">verified</span>{nd.pairVerify}
+                    <span className="material-symbols-outlined text-[10px] text-slate-300 dark:text-white/20 ml-auto cursor-help">info</span>
                   </h3>
                   <input value={verifyNodeId} onChange={e => setVerifyNodeId(e.target.value)} placeholder={nd.pairNodeId}
-                    className="w-full h-7 px-2 bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-lg text-[10px] font-mono text-slate-700 dark:text-white/70 outline-none" />
+                    className="w-full h-8 px-2.5 bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-lg text-[11px] font-mono text-slate-700 dark:text-white/70 outline-none focus:border-sky-500/50" />
                   <input value={verifyToken} onChange={e => setVerifyToken(e.target.value)} placeholder={nd.pairToken}
-                    className="w-full h-7 px-2 bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-lg text-[10px] font-mono text-slate-700 dark:text-white/70 outline-none" />
+                    className="w-full h-8 px-2.5 bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-lg text-[11px] font-mono text-slate-700 dark:text-white/70 outline-none focus:border-sky-500/50" />
                   <button onClick={handlePairVerify} disabled={verifying || !verifyNodeId.trim() || !verifyToken.trim()}
-                    className="h-7 px-3 bg-sky-500 text-white text-[10px] font-bold rounded-lg disabled:opacity-40 flex items-center gap-1">
-                    <span className="material-symbols-outlined text-[12px]">{verifying ? 'progress_activity' : 'verified'}</span>
+                    className="w-full h-8 bg-sky-500 text-white text-[11px] font-bold rounded-lg disabled:opacity-40 flex items-center justify-center gap-1.5 hover:bg-sky-500/90 transition-colors">
+                    <span className="material-symbols-outlined text-[14px]">{verifying ? 'progress_activity' : 'verified'}</span>
                     {verifying ? nd.pairVerifying : nd.pairVerify}
                   </button>
                   {verifyResult && (
-                    <div className={`px-2 py-1 rounded-lg text-[10px] ${verifyResult.ok ? 'bg-mac-green/10 text-mac-green' : 'bg-red-50 dark:bg-red-500/5 text-red-500'}`}>{verifyResult.text}</div>
+                    <div className={`px-2.5 py-1.5 rounded-lg text-[11px] ${verifyResult.ok ? 'bg-mac-green/10 text-mac-green' : 'bg-red-50 dark:bg-red-500/5 text-red-500'}`}>{verifyResult.text}</div>
                   )}
                 </div>
               </div>
@@ -708,23 +957,28 @@ const Nodes: React.FC<NodesProps> = ({ language }) => {
               )}
 
               {/* 待审批设备 */}
-              {pending.length > 0 && (
+              {filteredPending.length > 0 && (
                 <div>
                   <div className="flex items-center gap-2 mb-3">
                     <span className="material-symbols-outlined text-[16px] text-amber-500">pending_actions</span>
                     <h3 className="text-[11px] font-bold text-slate-600 dark:text-white/60 uppercase tracking-wider">{nd.pending}</h3>
-                    <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 font-bold">{pending.length}</span>
+                    <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 font-bold">{filteredPending.length}</span>
                   </div>
                   <div className="space-y-2">
-                    {pending.map(req => (
-                      <div key={req.requestId} className="bg-amber-50 dark:bg-amber-500/[0.04] border border-amber-200/50 dark:border-amber-500/10 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                    {filteredPending.map(req => (
+                      <div key={req.requestId} className="bg-amber-50 dark:bg-amber-500/[0.04] border border-amber-200/50 dark:border-amber-500/10 rounded-xl p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-3">
                         <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center shrink-0">
                           <span className="material-symbols-outlined text-amber-500 text-[20px]">smartphone</span>
                         </div>
                         <div className="flex-1 min-w-0">
-                          <h4 className="font-bold text-[12px] text-slate-800 dark:text-white truncate">{req.displayName?.trim() || req.deviceId}</h4>
-                          <p className="text-[10px] text-slate-400 dark:text-white/40 font-mono truncate">{req.deviceId}</p>
-                          <div className="flex flex-wrap gap-2 mt-1 text-[11px] text-slate-400 dark:text-white/35">
+                          <h4 className="font-bold text-[12px] text-slate-800 dark:text-white truncate">{req.displayName?.trim() || truncateId(req.deviceId, 20)}</h4>
+                          <p className="text-[10px] text-slate-400 dark:text-white/40 font-mono truncate flex items-center gap-1 group/did">
+                            <span title={req.deviceId}>{truncateId(req.deviceId, 24)}</span>
+                            <button onClick={() => copyToClipboard(req.deviceId)} className="opacity-0 group-hover/did:opacity-100 transition-opacity" title={nd.copyId}>
+                              <span className="material-symbols-outlined text-[12px] hover:text-primary">content_copy</span>
+                            </button>
+                          </p>
+                          <div className="flex flex-wrap gap-2 mt-1 text-[10px] sm:text-[11px] text-slate-400 dark:text-white/35">
                             {req.role && <span>{nd.role}: {req.role}</span>}
                             {req.remoteIp && <span>{nd.ip}: {req.remoteIp}</span>}
                             {req.isRepair && <span className="text-amber-500 font-bold">{nd.repair}</span>}
@@ -733,12 +987,14 @@ const Nodes: React.FC<NodesProps> = ({ language }) => {
                         </div>
                         <div className="flex gap-2 shrink-0">
                           <button onClick={() => handleApprove(req.requestId)}
-                            className="h-8 px-4 bg-mac-green text-white text-[10px] font-bold rounded-lg hover:opacity-90 transition-opacity flex items-center gap-1">
-                            <span className="material-symbols-outlined text-[14px]">check</span>{nd.approve}
+                            className="h-8 px-3 sm:px-4 bg-mac-green text-white text-[10px] sm:text-[11px] font-bold rounded-lg hover:opacity-90 transition-opacity flex items-center gap-1">
+                            <span className="material-symbols-outlined text-[14px]">check</span>
+                            <span className="hidden sm:inline">{nd.approve}</span>
                           </button>
                           <button onClick={() => handleReject(req.requestId)}
-                            className="h-8 px-4 bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-white/60 text-[10px] font-bold rounded-lg hover:bg-mac-red/10 hover:text-mac-red transition-colors flex items-center gap-1">
-                            <span className="material-symbols-outlined text-[14px]">close</span>{nd.reject}
+                            className="h-8 px-3 sm:px-4 bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-white/60 text-[10px] sm:text-[11px] font-bold rounded-lg hover:bg-mac-red/10 hover:text-mac-red transition-colors flex items-center gap-1">
+                            <span className="material-symbols-outlined text-[14px]">close</span>
+                            <span className="hidden sm:inline">{nd.reject}</span>
                           </button>
                         </div>
                       </div>
@@ -748,25 +1004,30 @@ const Nodes: React.FC<NodesProps> = ({ language }) => {
               )}
 
               {/* 已配对设备 */}
-              {paired.length > 0 && (
+              {filteredPaired.length > 0 && (
                 <div>
                   <div className="flex items-center gap-2 mb-3">
                     <span className="material-symbols-outlined text-[16px] text-mac-green">verified</span>
                     <h3 className="text-[11px] font-bold text-slate-600 dark:text-white/60 uppercase tracking-wider">{nd.paired}</h3>
-                    <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-mac-green/15 text-mac-green font-bold">{paired.length}</span>
+                    <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-mac-green/15 text-mac-green font-bold">{filteredPaired.length}</span>
                   </div>
                   <div className="space-y-3">
-                    {paired.map(device => {
+                    {filteredPaired.map(device => {
                       const tokens = Array.isArray(device.tokens) ? device.tokens : [];
                       return (
-                        <div key={device.deviceId} className="bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/10 rounded-xl p-4">
+                        <div key={device.deviceId} className="bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/10 rounded-xl p-3 sm:p-4">
                           <div className="flex items-center gap-3 mb-3">
                             <div className="w-10 h-10 rounded-xl bg-mac-green/10 flex items-center justify-center shrink-0">
                               <span className="material-symbols-outlined text-mac-green text-[20px]">devices</span>
                             </div>
                             <div className="flex-1 min-w-0">
-                              <h4 className="font-bold text-[12px] text-slate-800 dark:text-white truncate">{device.displayName?.trim() || device.deviceId}</h4>
-                              <p className="text-[10px] text-slate-400 dark:text-white/40 font-mono truncate">{device.deviceId}</p>
+                              <h4 className="font-bold text-[12px] text-slate-800 dark:text-white truncate">{device.displayName?.trim() || truncateId(device.deviceId, 20)}</h4>
+                              <p className="text-[10px] text-slate-400 dark:text-white/40 font-mono truncate flex items-center gap-1 group/pdid">
+                                <span title={device.deviceId}>{truncateId(device.deviceId, 24)}</span>
+                                <button onClick={() => copyToClipboard(device.deviceId)} className="opacity-0 group-hover/pdid:opacity-100 transition-opacity" title={nd.copyId}>
+                                  <span className="material-symbols-outlined text-[12px] hover:text-primary">content_copy</span>
+                                </button>
+                              </p>
                             </div>
                           </div>
 
@@ -831,9 +1092,10 @@ const Nodes: React.FC<NodesProps> = ({ language }) => {
               )}
 
               {!devicesLoading && pending.length === 0 && paired.length === 0 && !devicesError && (
-                <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+                <div className="flex flex-col items-center justify-center py-16 text-slate-400 dark:text-white/40">
                   <span className="material-symbols-outlined text-5xl mb-4 text-primary/20">devices</span>
-                  <span className="text-xs font-bold">{nd.noDevices}</span>
+                  <span className="text-sm font-bold mb-2">{nd.noDevices}</span>
+                  <span className="text-[11px] text-center max-w-xs">{nd.noDevicesHint}</span>
                 </div>
               )}
             </div>
@@ -938,17 +1200,34 @@ const Nodes: React.FC<NodesProps> = ({ language }) => {
             </div>
           )}
 
-          {/* Event Log */}
+          {/* Event Log Toggle */}
           {eventLog.length > 0 && (
-            <div className="mt-4 rounded-xl bg-white dark:bg-white/[0.03] border border-slate-200/60 dark:border-white/[0.06] p-3">
-              <h3 className="text-[10px] font-bold text-slate-500 dark:text-white/40 uppercase mb-2 flex items-center gap-1">
-                <span className="material-symbols-outlined text-[12px]">history</span>{nd.eventLog}
-              </h3>
-              <div className="space-y-0.5 max-h-24 overflow-y-auto custom-scrollbar">
-                {eventLog.map((e, i) => (
-                  <p key={i} className="text-[11px] font-mono text-slate-400 dark:text-white/35">{e}</p>
-                ))}
-              </div>
+            <div className="mt-4">
+              <button 
+                onClick={() => setShowEventLog(!showEventLog)}
+                className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 dark:text-white/40 uppercase hover:text-slate-700 dark:hover:text-white/60 transition-colors"
+              >
+                <span className="material-symbols-outlined text-[12px]">{showEventLog ? 'expand_less' : 'expand_more'}</span>
+                <span className="material-symbols-outlined text-[12px]">history</span>
+                {showEventLog ? nd.hideEventLog : nd.showEventLog} ({eventLog.length})
+              </button>
+              
+              {showEventLog && (
+                <div className="mt-2 rounded-xl bg-white dark:bg-white/[0.03] border border-slate-200/60 dark:border-white/[0.06] p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-bold text-slate-500 dark:text-white/40 uppercase">{nd.eventLog}</span>
+                    <button onClick={clearEventLog} className="text-[10px] text-slate-400 hover:text-mac-red transition-colors flex items-center gap-1">
+                      <span className="material-symbols-outlined text-[12px]">delete</span>
+                      {nd.clearEventLog}
+                    </button>
+                  </div>
+                  <div className="space-y-0.5 max-h-32 overflow-y-auto custom-scrollbar">
+                    {eventLog.map((e, i) => (
+                      <p key={i} className="text-[10px] sm:text-[11px] font-mono text-slate-400 dark:text-white/35 break-all">{e}</p>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
