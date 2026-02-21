@@ -3,6 +3,7 @@ import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { Language } from '../types';
 import { getTranslation } from '../locales';
 import { gwApi } from '../services/api';
+import { useToast } from '../components/Toast';
 import CustomSelect from '../components/CustomSelect';
 
 interface ActivityProps { language: Language; }
@@ -11,15 +12,16 @@ const THINK_LEVELS = ['', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh'];
 const VERBOSE_VALUES = ['', 'off', 'on', 'full'];
 const REASONING_LEVELS = ['', 'off', 'on', 'stream'];
 
-function fmtRelative(ms?: number | null) {
+// i18n-aware relative time formatting
+function fmtRelative(ms?: number | null, a?: any) {
   if (!ms || !Number.isFinite(ms)) return '-';
   const diff = Date.now() - ms;
-  if (diff < 60_000) return '<1m';
+  if (diff < 60_000) return a?.justNow || '<1m';
   const mins = Math.round(diff / 60_000);
-  if (mins < 60) return `${mins}m`;
+  if (mins < 60) return `${mins} ${a?.minutesAgo || 'm'}`;
   const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `${hrs}h`;
-  return `${Math.round(hrs / 24)}d`;
+  if (hrs < 24) return `${hrs} ${a?.hoursAgo || 'h'}`;
+  return `${Math.round(hrs / 24)} ${a?.daysAgo || 'd'}`;
 }
 
 function fmtTokens(row: any) {
@@ -40,6 +42,7 @@ const KIND_COLORS: Record<string, string> = {
 const Activity: React.FC<ActivityProps> = ({ language }) => {
   const t = useMemo(() => getTranslation(language), [language]);
   const a = (t as any).act as any;
+  const { toast } = useToast();
 
   const [result, setResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -96,29 +99,49 @@ const Activity: React.FC<ActivityProps> = ({ language }) => {
   const patchSession = useCallback(async (key: string, patch: any) => {
     if (busy) return;
     setBusy(true);
-    try { await gwApi.sessionsPatch(key, patch); await loadSessions(); }
-    catch (e: any) { setError(String(e)); }
+    try { 
+      await gwApi.sessionsPatch(key, patch); 
+      await loadSessions(); 
+      toast('success', a.patchOk);
+    }
+    catch (e: any) { 
+      setError(String(e)); 
+      toast('error', String(e));
+    }
     setBusy(false);
-  }, [busy, loadSessions]);
+  }, [busy, loadSessions, toast, a]);
 
   const resetSession = useCallback(async (key: string) => {
     if (busy) return;
+    if (!confirm(a.confirmReset)) return;
     setBusy(true);
-    try { await gwApi.proxy('sessions.reset', { key }); await loadSessions(); }
-    catch (e: any) { setError(String(e)); }
+    try { 
+      await gwApi.proxy('sessions.reset', { key }); 
+      await loadSessions(); 
+      toast('success', a.resetOk);
+    }
+    catch (e: any) { 
+      setError(String(e)); 
+      toast('error', String(e));
+    }
     setBusy(false);
-  }, [busy, loadSessions]);
+  }, [busy, loadSessions, toast, a]);
 
   const deleteSession = useCallback(async (key: string) => {
     if (busy) return;
+    if (!confirm(a.confirmDelete)) return;
     setBusy(true);
     try {
       await gwApi.proxy('sessions.delete', { key, deleteTranscript: true });
       if (selectedKey === key) { setSelectedKey(null); setPreview(null); }
       await loadSessions();
-    } catch (e: any) { setError(String(e)); }
+      toast('success', a.deleteOk);
+    } catch (e: any) { 
+      setError(String(e)); 
+      toast('error', String(e));
+    }
     setBusy(false);
-  }, [busy, selectedKey, loadSessions]);
+  }, [busy, selectedKey, loadSessions, toast, a]);
 
   const kindCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -140,11 +163,13 @@ const Activity: React.FC<ActivityProps> = ({ language }) => {
         {/* Header */}
         <div className="p-3 border-b border-slate-200/60 dark:border-white/[0.06]">
           <div className="flex items-center justify-between mb-2">
-            <div>
+            <div className="flex-1 min-w-0">
               <h2 className="text-xs font-bold text-slate-700 dark:text-white/80">{a.title}</h2>
-              <p className="text-[11px] text-slate-400 dark:text-white/35">{sessions.length} {a.sessions}{storePath ? ` · ${storePath}` : ''}</p>
+              <p className="text-[10px] text-slate-400 dark:text-white/35 truncate" title={a.activityHelp}>
+                {sessions.length} {a.sessions}{storePath ? ` · ${storePath}` : ''}
+              </p>
             </div>
-            <button onClick={loadSessions} disabled={loading} className="p-1 rounded-lg text-slate-400 hover:text-primary hover:bg-primary/5 transition-all disabled:opacity-40">
+            <button onClick={loadSessions} disabled={loading} className="p-1.5 rounded-lg text-slate-400 hover:text-primary hover:bg-primary/5 transition-all disabled:opacity-40 shrink-0" title={a.refresh}>
               <span className={`material-symbols-outlined text-[16px] ${loading ? 'animate-spin' : ''}`}>refresh</span>
             </button>
           </div>
@@ -166,7 +191,11 @@ const Activity: React.FC<ActivityProps> = ({ language }) => {
         {/* Session List */}
         <div className="flex-1 overflow-y-auto custom-scrollbar">
           {filtered.length === 0 ? (
-            <p className="text-[10px] text-slate-400 dark:text-white/20 text-center py-8">{a.noSessions}</p>
+            <div className="flex flex-col items-center justify-center py-10 text-slate-400 dark:text-white/30">
+              <span className="material-symbols-outlined text-3xl mb-2">forum</span>
+              <p className="text-[11px] font-bold mb-1">{a.noSessions}</p>
+              <p className="text-[10px] text-center px-4">{a.noSessionsHint}</p>
+            </div>
           ) : filtered.map((row: any) => {
             const isSelected = row.key === selectedKey;
             const displayName = row.displayName?.trim() || row.label?.trim() || '';
@@ -179,7 +208,7 @@ const Activity: React.FC<ActivityProps> = ({ language }) => {
                 </div>
                 {displayName && <p className="text-[11px] text-slate-400 dark:text-white/35 truncate">{displayName}</p>}
                 <div className="flex items-center gap-3 mt-1 text-[11px] text-slate-400 dark:text-white/20">
-                  <span>{fmtRelative(row.updatedAt)} {a.ago}</span>
+                  <span>{fmtRelative(row.updatedAt, a)}</span>
                   <span>{fmtTokens(row)} {a.tok}</span>
                   {row.model && <span className="truncate">{row.model}</span>}
                 </div>
@@ -200,9 +229,10 @@ const Activity: React.FC<ActivityProps> = ({ language }) => {
               </button>
             </div>
             <div className="flex-1 flex items-center justify-center">
-              <div className="text-center text-slate-400 dark:text-white/20">
-                <span className="material-symbols-outlined text-4xl mb-2">forum</span>
-                <p className="text-sm">{a.selectSession}</p>
+              <div className="text-center text-slate-400 dark:text-white/30 px-4">
+                <span className="material-symbols-outlined text-5xl mb-3">forum</span>
+                <p className="text-sm font-bold mb-1">{a.selectSession}</p>
+                <p className="text-[11px]">{a.selectSessionHint}</p>
               </div>
             </div>
           </div>
@@ -252,7 +282,8 @@ const Activity: React.FC<ActivityProps> = ({ language }) => {
 
               {/* Per-Session Overrides */}
               <div className="rounded-2xl border border-slate-200/60 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-4">
-                <h3 className="text-[11px] font-bold text-slate-600 dark:text-white/60 uppercase tracking-wider mb-3">{a.label} & {a.overrides}</h3>
+                <h3 className="text-[11px] font-bold text-slate-600 dark:text-white/60 uppercase tracking-wider mb-1">{a.label} & {a.overrides}</h3>
+                <p className="text-[10px] text-slate-400 dark:text-white/30 mb-3">{a.overridesHelp}</p>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   {/* Label */}
                   <label className="block">
@@ -290,7 +321,7 @@ const Activity: React.FC<ActivityProps> = ({ language }) => {
 
               {/* Message Preview */}
               <div className="rounded-2xl border border-slate-200/60 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-4">
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center justify-between mb-1">
                   <h3 className="text-[11px] font-bold text-slate-600 dark:text-white/60 uppercase tracking-wider flex items-center gap-2">
                     <span className="material-symbols-outlined text-[14px] text-primary">chat</span>
                     {a.messages}
@@ -298,6 +329,7 @@ const Activity: React.FC<ActivityProps> = ({ language }) => {
                   <button onClick={() => selectSession(selected.key)} disabled={previewLoading}
                     className="text-[10px] text-primary hover:underline">{a.refresh}</button>
                 </div>
+                <p className="text-[10px] text-slate-400 dark:text-white/30 mb-3">{a.messagesHelp}</p>
                 {previewLoading ? (
                   <p className="text-[10px] text-slate-400 dark:text-white/20 py-6 text-center">{a.loading}</p>
                 ) : previewMessages.length === 0 ? (

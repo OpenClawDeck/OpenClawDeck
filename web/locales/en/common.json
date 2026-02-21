@@ -685,7 +685,26 @@
     "room": "Room",
     "space": "Space",
     "provider": "Provider",
-    "sessionId": "Session ID"
+    "sessionId": "Session ID",
+    
+    "activityHelp": "Session management for viewing and managing AI agent conversations, including token usage and session settings",
+    "noSessionsHint": "When users chat with AI agents, session records will appear here",
+    "selectSessionHint": "Select a session from the list to view details and message preview",
+    "kindHelp": "Session types: Direct (1-on-1), Group (multi-user), Global (system-level)",
+    "overridesHelp": "Set AI parameters for this session individually, overriding global config",
+    "messagesHelp": "Recent message preview, showing up to 20 messages",
+    
+    "resetOk": "Session reset",
+    "deleteOk": "Session deleted",
+    "patchOk": "Settings saved",
+    
+    "justNow": "just now",
+    "minutesAgo": "min ago",
+    "hoursAgo": "hr ago",
+    "daysAgo": "days ago",
+    
+    "showList": "Show List",
+    "hideList": "Hide List"
   },
   "alrt": {
     "search": "Search commands...",
