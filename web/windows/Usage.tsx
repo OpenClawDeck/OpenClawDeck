@@ -28,7 +28,21 @@ interface SessionEntry {
   key: string;
   label?: string;
   lastActiveAt?: number;
-  totals: UsageTotals;
+  updatedAt?: number;
+  totals?: UsageTotals;
+  usage?: {
+    totalTokens?: number;
+    totalCost?: number;
+    input?: number;
+    output?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    inputCost?: number;
+    outputCost?: number;
+    cacheReadCost?: number;
+    cacheWriteCost?: number;
+    messageCounts?: { total: number; user: number; assistant: number; toolCalls: number; toolResults: number; errors: number };
+  };
   messages?: { total: number; user: number; assistant: number; toolCalls: number; errors: number };
 }
 
@@ -396,7 +410,7 @@ const Usage: React.FC<UsageProps> = ({ language, onNavigateToSession }) => {
   const sessions = usageData?.sessions || [];
   const agg = usageData?.aggregates;
   const maxModelTokens = Math.max(...models.map(m => m.totals?.totalTokens || 0), 1);
-  const maxSessionTokens = Math.max(...sessions.map(s => s.totals?.totalTokens || 0), 1);
+  const maxSessionTokens = Math.max(...sessions.map(s => s.totals?.totalTokens || s.usage?.totalTokens || 0), 1);
 
   const MODEL_COLORS = ['#6366f1', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
 
@@ -427,15 +441,29 @@ const Usage: React.FC<UsageProps> = ({ language, onNavigateToSession }) => {
     return Object.values(grouped).sort((a, b) => a.date.localeCompare(b.date));
   }, [daily, trendView]);
 
+  // Helper to get session tokens (supports both totals and usage fields from Gateway)
+  const getSessionTokens = useCallback((s: SessionEntry) => {
+    return s.totals?.totalTokens || s.usage?.totalTokens || 0;
+  }, []);
+  const getSessionCost = useCallback((s: SessionEntry) => {
+    return s.totals?.totalCost || s.usage?.totalCost || 0;
+  }, []);
+  const getSessionMessages = useCallback((s: SessionEntry) => {
+    return s.messages || s.usage?.messageCounts || { total: 0, user: 0, assistant: 0, toolCalls: 0, errors: 0 };
+  }, []);
+  const getSessionLastActive = useCallback((s: SessionEntry) => {
+    return s.lastActiveAt || s.updatedAt;
+  }, []);
+
   // Filter sessions by selected model
   const filteredSessions = useMemo(() => {
-    let list = sessions.filter(s => (s.totals?.totalTokens || 0) > 0);
+    let list = sessions.filter(s => getSessionTokens(s) > 0);
     if (selectedModel) {
       // Note: session doesn't have model info directly, this is a placeholder
       // In real implementation, you'd need to track which models were used in each session
     }
-    return list.sort((a, b) => (b.totals?.totalTokens || 0) - (a.totals?.totalTokens || 0));
-  }, [sessions, selectedModel]);
+    return list.sort((a, b) => getSessionTokens(b) - getSessionTokens(a));
+  }, [sessions, selectedModel, getSessionTokens]);
 
   // Paginated sessions
   const paginatedSessions = useMemo(() => {
@@ -851,18 +879,18 @@ const Usage: React.FC<UsageProps> = ({ language, onNavigateToSession }) => {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <p className="text-[11px] font-bold dark:text-white/80 text-slate-700 truncate">{s.label || s.key}</p>
-                          {s.lastActiveAt && <span className="text-[9px] text-slate-400 dark:text-white/30">{fmtRelativeTime(s.lastActiveAt)}</span>}
+                          {getSessionLastActive(s) && <span className="text-[10px] text-slate-400 dark:text-white/35">{fmtRelativeTime(getSessionLastActive(s))}</span>}
                         </div>
                         <div className="flex gap-3 mt-0.5 text-[10px] text-slate-400 dark:text-white/35">
-                          <span>{u.messages}: {s.messages?.total || 0}</span>
-                          <span>{u.toolCalls}: {s.messages?.toolCalls || 0}</span>
-                          {(s.messages?.errors || 0) > 0 && <span className="text-red-400">{u.errors}: {s.messages?.errors}</span>}
+                          <span>{u.messages}: {getSessionMessages(s).total || 0}</span>
+                          <span>{u.toolCalls}: {getSessionMessages(s).toolCalls || 0}</span>
+                          {(getSessionMessages(s).errors || 0) > 0 && <span className="text-red-400">{u.errors}: {getSessionMessages(s).errors}</span>}
                         </div>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
                         <div className="text-right mr-1">
-                          <p className="text-[12px] font-bold tabular-nums dark:text-white/80 text-slate-600">{fmtTokens(s.totals?.totalTokens || 0)}</p>
-                          <p className="text-[10px] font-mono text-amber-500">{fmtCost((s.totals?.totalCost || 0))}</p>
+                          <p className="text-[12px] font-bold tabular-nums dark:text-white/80 text-slate-600">{fmtTokens(getSessionTokens(s))}</p>
+                          <p className="text-[10px] font-mono text-amber-500">{fmtCost(getSessionCost(s))}</p>
                         </div>
                         <button onClick={() => openSessionDetail(s.key, 'timeseries')}
                           className="w-7 h-7 rounded-lg bg-indigo-500/10 text-indigo-500 hover:bg-indigo-500/20 flex items-center justify-center transition-colors"
@@ -886,7 +914,7 @@ const Usage: React.FC<UsageProps> = ({ language, onNavigateToSession }) => {
                     <div className="mt-2">
                       <div className="h-1.5 rounded-full bg-slate-100 dark:bg-white/[0.04] overflow-hidden">
                         <div className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-indigo-400 transition-all duration-500"
-                          style={{ width: `${Math.max(((s.totals?.totalTokens || 0) / maxSessionTokens) * 100, 0.5)}%` }} />
+                          style={{ width: `${Math.max((getSessionTokens(s) / maxSessionTokens) * 100, 0.5)}%` }} />
                       </div>
                     </div>
                   </div>
