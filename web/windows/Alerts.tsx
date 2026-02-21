@@ -3,9 +3,18 @@ import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react'
 import { Language } from '../types';
 import { getTranslation } from '../locales';
 import { gwApi } from '../services/api';
+import { useToast } from '../components/Toast';
 import CustomSelect from '../components/CustomSelect';
 
 interface AlertsProps { language: Language; }
+
+// Tab configuration with icons
+const TAB_CONFIG = {
+  pending: { icon: 'gavel' },
+  policy: { icon: 'security' },
+  notify: { icon: 'notifications' },
+  allowlist: { icon: 'checklist' },
+} as const;
 
 function fmtRemaining(ms: number) {
   const rem = Math.max(0, ms);
@@ -16,13 +25,14 @@ function fmtRemaining(ms: number) {
   return `${Math.floor(m / 60)}h`;
 }
 
-function fmtRelative(ts?: number) {
+// i18n-aware relative time formatting
+function fmtRelative(ts?: number, a?: any) {
   if (!ts) return '-';
   const diff = Date.now() - ts;
-  if (diff < 60_000) return '<1m ago';
+  if (diff < 60_000) return a?.justNow || 'just now';
   const mins = Math.round(diff / 60_000);
-  if (mins < 60) return `${mins}m ago`;
-  return `${Math.round(mins / 60)}h ago`;
+  if (mins < 60) return `${mins} ${a?.minutesAgo || 'min ago'}`;
+  return `${Math.round(mins / 60)} ${a?.hoursAgo || 'hr ago'}`;
 }
 
 interface PendingApproval {
@@ -44,6 +54,7 @@ interface PendingApproval {
 const Alerts: React.FC<AlertsProps> = ({ language }) => {
   const t = useMemo(() => getTranslation(language), [language]);
   const a = (t as any).alrt as any;
+  const { toast } = useToast();
 
   // WS connection (via Manager's own /api/ws)
   const wsRef = useRef<WebSocket | null>(null);
@@ -52,6 +63,7 @@ const Alerts: React.FC<AlertsProps> = ({ language }) => {
   const [wsError, setWsError] = useState<string | null>(null);
 
   const [tab, setTab] = useState<'pending' | 'policy' | 'notify' | 'allowlist'>('pending');
+  const [showFlow, setShowFlow] = useState(false);
   const [snapshot, setSnapshot] = useState<any>(null);
   const [form, setForm] = useState<any>(null);
   const [dirty, setDirty] = useState(false);
@@ -234,9 +246,18 @@ const Alerts: React.FC<AlertsProps> = ({ language }) => {
     try {
       await gwApi.execApprovalDecision(id, decision);
       setPendingQueue(q => q.filter(item => item.id !== id));
-    } catch (e: any) { setError(a.decideFailed + ': ' + String(e)); }
+      // Toast feedback
+      if (decision === 'deny') {
+        toast('success', a.denied);
+      } else {
+        toast('success', a.approved);
+      }
+    } catch (e: any) { 
+      setError(a.decideFailed + ': ' + String(e)); 
+      toast('error', a.decideFailed);
+    }
     setBusy(false);
-  }, [busy, a.decideFailed]);
+  }, [busy, a, toast]);
 
   const defaults = form?.defaults || {};
   const agents: Record<string, any> = form?.agents || {};
@@ -247,28 +268,74 @@ const Alerts: React.FC<AlertsProps> = ({ language }) => {
 
   return (
     <main className="flex-1 overflow-y-auto p-4 md:p-5 custom-scrollbar bg-slate-50/50 dark:bg-transparent">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h1 className="text-base font-bold dark:text-white/40 text-slate-800">{a.title}</h1>
-          <p className="text-[11px] text-slate-400 dark:text-white/35 mt-0.5">{a.desc}</p>
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+        <div className="flex-1 min-w-0">
+          <h1 className="text-base font-bold dark:text-white text-slate-800">{a.title}</h1>
+          <p className="text-[11px] text-slate-400 dark:text-white/35 mt-0.5">{a.alertsHelp || a.desc}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0 flex-wrap">
           {/* WS connection status */}
-          <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/5">
-            <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${wsConnected ? 'bg-mac-green animate-pulse' : wsConnecting ? 'bg-mac-yellow animate-pulse' : 'bg-slate-300 dark:bg-white/20'
+          <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/5">
+            <div className={`w-2 h-2 rounded-full shrink-0 ${wsConnected ? 'bg-mac-green animate-pulse' : wsConnecting ? 'bg-mac-yellow animate-pulse' : 'bg-slate-300 dark:bg-white/20'
               }`} />
             <span className="text-[11px] font-medium text-slate-500 dark:text-white/40 hidden sm:inline">
               {wsConnected ? a.wsLive : wsConnecting ? a.wsConnecting : a.wsDisconnected}
             </span>
+            {!wsConnected && !wsConnecting && (
+              <button onClick={() => window.location.reload()} className="text-[10px] text-primary font-bold ml-1 hover:underline">
+                {a.wsReconnect}
+              </button>
+            )}
           </div>
-          {dirty && <span className="text-[11px] text-mac-yellow font-bold self-center">{a.unsaved}</span>}
+          {/* Show/Hide Flow Button */}
+          <button onClick={() => setShowFlow(!showFlow)}
+            className={`h-8 px-3 flex items-center gap-1.5 border rounded-lg text-[11px] font-bold transition-all ${
+              showFlow 
+                ? 'bg-primary/10 border-primary/30 text-primary' 
+                : 'bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/70 hover:bg-slate-200 dark:hover:bg-white/10'
+            }`}>
+            <span className="material-symbols-outlined text-[14px]">help_outline</span>
+            <span className="hidden sm:inline">{showFlow ? a.hideFlow : a.showFlow}</span>
+          </button>
+          {dirty && <span className="text-[11px] text-mac-yellow font-bold">{a.unsaved}</span>}
           <button onClick={saveApprovals} disabled={saving || !dirty}
-            className="px-3 py-1.5 rounded-lg bg-primary text-white text-[11px] font-bold disabled:opacity-40">{saving ? a.saving : a.save}</button>
-          <button onClick={loadApprovals} disabled={loading} className="p-1.5 rounded-lg text-slate-400 hover:text-primary hover:bg-primary/5 transition-all disabled:opacity-40">
+            className="h-8 px-3 rounded-lg bg-primary text-white text-[11px] font-bold disabled:opacity-40 flex items-center gap-1.5">
+            <span className="material-symbols-outlined text-[14px]">{saving ? 'progress_activity' : 'save'}</span>
+            <span className="hidden sm:inline">{saving ? a.saving : a.save}</span>
+          </button>
+          <button onClick={loadApprovals} disabled={loading} className="h-8 w-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-primary hover:bg-primary/5 transition-all disabled:opacity-40">
             <span className={`material-symbols-outlined text-[18px] ${loading ? 'animate-spin' : ''}`}>refresh</span>
           </button>
         </div>
       </div>
+
+      {/* Approval Flow Guide */}
+      {showFlow && (
+        <div className="mb-4 bg-gradient-to-r from-primary/5 to-sky-500/5 dark:from-primary/10 dark:to-sky-500/10 border border-primary/20 dark:border-primary/30 rounded-xl p-4">
+          <h3 className="text-[12px] font-bold text-primary dark:text-primary mb-3 flex items-center gap-2">
+            <span className="material-symbols-outlined text-[16px]">route</span>
+            {a.approvalFlow}
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {[
+              { step: 1, icon: 'smart_toy', text: a.approvalStep1 },
+              { step: 2, icon: 'security', text: a.approvalStep2 },
+              { step: 3, icon: 'notifications', text: a.approvalStep3 },
+              { step: 4, icon: 'check_circle', text: a.approvalStep4 },
+            ].map((item) => (
+              <div key={item.step} className="flex items-start gap-2">
+                <div className="w-6 h-6 rounded-full bg-primary/20 dark:bg-primary/30 flex items-center justify-center shrink-0">
+                  <span className="text-[11px] font-bold text-primary">{item.step}</span>
+                </div>
+                <div className="flex-1">
+                  <p className="text-[11px] text-slate-600 dark:text-white/70">{item.text}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {wsError && !wsConnected && !wsConnecting && (
         <div className="mb-3 px-3 py-2 rounded-xl bg-mac-yellow/10 border border-mac-yellow/20 text-[10px] text-mac-yellow flex items-center gap-2">
@@ -279,13 +346,15 @@ const Alerts: React.FC<AlertsProps> = ({ language }) => {
 
       {error && <div className="mb-3 px-3 py-2 rounded-xl bg-mac-red/10 border border-mac-red/20 text-[10px] text-mac-red">{error}</div>}
 
-      {/* Tabs */}
-      <div className="flex gap-1 mb-4">
-        {(['pending', 'policy', 'notify', 'allowlist'] as const).map(t => (
-          <button key={t} onClick={() => setTab(t)}
-            className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${tab === t ? 'bg-primary text-white' : 'text-slate-500 dark:text-white/40 hover:bg-slate-100 dark:hover:bg-white/5'}`}>
-            {a[t]}
-            {t === 'pending' && pendingQueue.length > 0 && <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-mac-red text-white text-[10px]">{pendingQueue.length}</span>}
+      {/* Tabs with icons */}
+      <div className="flex gap-1 mb-4 flex-wrap">
+        {(['pending', 'policy', 'notify', 'allowlist'] as const).map(tabId => (
+          <button key={tabId} onClick={() => setTab(tabId)}
+            className={`h-9 px-3 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1.5 ${tab === tabId ? 'bg-primary text-white' : 'text-slate-500 dark:text-white/40 hover:bg-slate-100 dark:hover:bg-white/5'}`}
+            title={tabId === 'pending' ? a.pendingHelp : tabId === 'policy' ? a.policyHelp : tabId === 'notify' ? a.notifyHelp : a.allowlistHelp}>
+            <span className="material-symbols-outlined text-[14px]">{TAB_CONFIG[tabId].icon}</span>
+            <span className="hidden sm:inline">{a[tabId]}</span>
+            {tabId === 'pending' && pendingQueue.length > 0 && <span className="px-1.5 py-0.5 rounded-full bg-mac-red text-white text-[10px]">{pendingQueue.length}</span>}
           </button>
         ))}
       </div>
@@ -299,10 +368,16 @@ const Alerts: React.FC<AlertsProps> = ({ language }) => {
               {a.pending} ({pendingQueue.length})
             </h3>
             {pendingQueue.length === 0 ? (
-              <div className="flex flex-col items-center py-8 text-slate-400 dark:text-white/20">
-                <span className="material-symbols-outlined text-3xl mb-2">{wsConnected ? 'check_circle' : 'cloud_off'}</span>
-                <p className="text-[11px]">{a.noPending}</p>
-                {wsConnected && <p className="text-[11px] mt-1 text-slate-400 dark:text-white/15">{a.wsLiveDesc}</p>}
+              <div className="flex flex-col items-center py-10 text-slate-400 dark:text-white/30">
+                <span className="material-symbols-outlined text-4xl mb-3">{wsConnected ? 'check_circle' : 'cloud_off'}</span>
+                <p className="text-sm font-bold mb-1">{a.noPending}</p>
+                <p className="text-[11px] text-center max-w-xs">{a.noPendingHint || a.wsLiveDesc}</p>
+                {wsConnected && (
+                  <div className="mt-3 flex items-center gap-1.5 text-[10px] text-mac-green">
+                    <div className="w-1.5 h-1.5 rounded-full bg-mac-green animate-pulse" />
+                    {a.wsLiveDesc}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="space-y-3">
@@ -311,8 +386,8 @@ const Alerts: React.FC<AlertsProps> = ({ language }) => {
                   const remainMs = (item.expiresAtMs || 0) - Date.now();
                   const isExpired = remainMs <= 0;
                   return (
-                    <div key={item.id} className={`rounded-xl border p-4 ${isExpired ? 'border-slate-200 dark:border-white/5 opacity-50' : 'border-mac-yellow/30 bg-mac-yellow/[0.03]'}`}>
-                      <div className="flex items-start justify-between gap-3">
+                    <div key={item.id} className={`rounded-xl border p-3 sm:p-4 ${isExpired ? 'border-slate-200 dark:border-white/5 opacity-50' : 'border-mac-yellow/30 bg-mac-yellow/[0.03]'}`}>
+                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                         <div className="flex-1 min-w-0">
                           <p className="text-[12px] font-bold font-mono text-slate-800 dark:text-white break-all">{req.command}</p>
                           <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-[11px]">
@@ -325,15 +400,24 @@ const Alerts: React.FC<AlertsProps> = ({ language }) => {
                             {req.ask && <span className="text-slate-400 dark:text-white/35">{a.ask}: <b className="text-slate-600 dark:text-white/50">{req.ask}</b></span>}
                           </div>
                         </div>
-                        <div className="shrink-0 text-right">
-                          <p className={`text-[11px] font-bold ${isExpired ? 'text-mac-red' : 'text-mac-yellow'}`}>{isExpired ? a.expired : `${a.expiresIn} ${fmtRemaining(remainMs)}`}</p>
-                          <div className="flex gap-1 mt-2">
+                        <div className="shrink-0 sm:text-right">
+                          <p className={`text-[11px] font-bold mb-2 ${isExpired ? 'text-mac-red' : 'text-mac-yellow'}`}>{isExpired ? a.expired : `${a.expiresIn} ${fmtRemaining(remainMs)}`}</p>
+                          <div className="flex gap-1.5 flex-wrap">
                             <button onClick={() => handleDecision(item.id, 'allow-once')} disabled={busy || isExpired}
-                              className="text-[11px] px-2 py-1 rounded-lg bg-mac-green/10 text-mac-green font-bold disabled:opacity-30">{a.allowOnce}</button>
+                              className="h-8 px-3 rounded-lg bg-mac-green/10 text-mac-green text-[11px] font-bold disabled:opacity-30 flex items-center gap-1 hover:bg-mac-green/20 transition-colors">
+                              <span className="material-symbols-outlined text-[14px]">check</span>
+                              <span className="hidden sm:inline">{a.allowOnce}</span>
+                            </button>
                             <button onClick={() => handleDecision(item.id, 'allow-always')} disabled={busy || isExpired}
-                              className="text-[11px] px-2 py-1 rounded-lg bg-primary/10 text-primary font-bold disabled:opacity-30">{a.allowAlways}</button>
+                              className="h-8 px-3 rounded-lg bg-primary/10 text-primary text-[11px] font-bold disabled:opacity-30 flex items-center gap-1 hover:bg-primary/20 transition-colors">
+                              <span className="material-symbols-outlined text-[14px]">done_all</span>
+                              <span className="hidden sm:inline">{a.allowAlways}</span>
+                            </button>
                             <button onClick={() => handleDecision(item.id, 'deny')} disabled={busy || isExpired}
-                              className="text-[11px] px-2 py-1 rounded-lg bg-mac-red/10 text-mac-red font-bold disabled:opacity-30">{a.deny}</button>
+                              className="h-8 px-3 rounded-lg bg-mac-red/10 text-mac-red text-[11px] font-bold disabled:opacity-30 flex items-center gap-1 hover:bg-mac-red/20 transition-colors">
+                              <span className="material-symbols-outlined text-[14px]">close</span>
+                              <span className="hidden sm:inline">{a.deny}</span>
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -607,7 +691,18 @@ const Alerts: React.FC<AlertsProps> = ({ language }) => {
               </div>
             )}
             {isDefaults && agentIds.length > 0 && (
-              <p className="text-[10px] text-slate-400 dark:text-white/35 text-center py-4">{a.scope}: {a.defaults} — allowlists are per-agent only</p>
+              <div className="flex flex-col items-center py-8 text-slate-400 dark:text-white/30">
+                <span className="material-symbols-outlined text-3xl mb-2">checklist</span>
+                <p className="text-[11px] text-center">{a.scope}: {a.defaults}</p>
+                <p className="text-[10px] text-center mt-1">{a.allowlistHelp}</p>
+              </div>
+            )}
+            {agentIds.length === 0 && (
+              <div className="flex flex-col items-center py-10 text-slate-400 dark:text-white/30">
+                <span className="material-symbols-outlined text-4xl mb-3">smart_toy</span>
+                <p className="text-sm font-bold mb-1">{a.noPatterns}</p>
+                <p className="text-[11px] text-center max-w-xs">{a.noAgentsHint}</p>
+              </div>
             )}
           </div>
         )}

@@ -790,7 +790,35 @@
     "fwdSessionFilterDesc": "Only forward matching sessions, leave empty for all",
     "fwdSaving": "Saving...",
     "fwdSaved": "Saved",
-    "fwdSaveFailed": "Save failed"
+    "fwdSaveFailed": "Save failed",
+    
+    "alertsHelp": "Approval Center manages human approval workflows for AI command execution, ensuring sensitive operations are authorized",
+    "pendingHelp": "When AI requests to execute a command requiring approval, it will wait here for your approval or rejection",
+    "policyHelp": "Configure command execution permissions and approval rules for different agents",
+    "notifyHelp": "Forward approval requests to messaging channels for convenient mobile review",
+    "allowlistHelp": "Commands in the allowlist can be executed directly without approval each time",
+    
+    "approvalFlow": "Approval Flow",
+    "approvalStep1": "AI agent requests command execution",
+    "approvalStep2": "System checks security policy and allowlist",
+    "approvalStep3": "If approval needed, pushed to this page or messaging channel",
+    "approvalStep4": "After you approve or deny, AI continues execution",
+    
+    "noPendingHint": "When AI requests to execute a command requiring approval, it will appear here",
+    "noAgentsHint": "Please create an agent in the Agents page first, then configure approval policies for it",
+    
+    "targetFormatHelp": "Format: channel:userID, e.g. telegram:123456 or discord:987654321",
+    
+    "approved": "Approved",
+    "denied": "Denied",
+    "wsReconnect": "Reconnect",
+    
+    "justNow": "just now",
+    "minutesAgo": "min ago",
+    "hoursAgo": "hr ago",
+    
+    "showFlow": "Show Flow",
+    "hideFlow": "Hide Flow"
   },
   "sec": {
     "title": "Security Center",
