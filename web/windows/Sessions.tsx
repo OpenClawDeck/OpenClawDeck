@@ -80,16 +80,23 @@ const Sessions: React.FC<SessionsProps> = ({ language, pendingSessionKey, onSess
   // Talk mode (real-time event)
   const [talkMode, setTalkMode] = useState<string | null>(null);
 
+  // Session history cleared notice (when navigating from Usage to a deleted/reset session)
+  const [sessionNotice, setSessionNotice] = useState<string | null>(null);
+
   // Handle pending session key from cross-window navigation
-  // Note: Session may exist in usage stats but not in sessions list (if deleted/reset)
-  // In that case, we still switch to it - the chat will show empty or create new
   useEffect(() => {
     if (pendingSessionKey && pendingSessionKey !== sessionKey) {
+      // Check if session exists in the list
+      const exists = sessions.some(s => s.key === pendingSessionKey);
       setSessionKey(pendingSessionKey);
       setDrawerOpen(false);
+      if (!exists && sessions.length > 0) {
+        // Session not found - show notice to user
+        setSessionNotice(c?.sessionHistoryCleared || '该会话的聊天记录已被清理，用量统计中仍保留历史数据');
+      }
       onSessionKeyConsumed?.();
     }
-  }, [pendingSessionKey, sessionKey, onSessionKeyConsumed]);
+  }, [pendingSessionKey, sessionKey, sessions, onSessionKeyConsumed, c]);
 
   // Chat
   const [messages, setMessages] = useState<ChatMsg[]>([]);
@@ -722,6 +729,19 @@ const Sessions: React.FC<SessionsProps> = ({ language, pendingSessionKey, onSess
         {/* Messages */}
         <div className="flex-1 overflow-y-auto custom-scrollbar">
           <div className="max-w-3xl mx-auto p-4 md:p-6 space-y-4">
+            {/* Session history cleared notice */}
+            {sessionNotice && (
+              <div className="flex items-start gap-3 p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 mb-4">
+                <span className="material-symbols-outlined text-[18px] text-amber-500 mt-0.5">info</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[11px] text-amber-700 dark:text-amber-400">{sessionNotice}</p>
+                </div>
+                <button onClick={() => setSessionNotice(null)} className="text-amber-400 hover:text-amber-600 dark:hover:text-amber-300 transition-colors">
+                  <span className="material-symbols-outlined text-[16px]">close</span>
+                </button>
+              </div>
+            )}
+
             {/* Welcome + Quick Start */}
             {messages.length === 0 && !chatLoading && !stream && (
               <div className="flex flex-col items-center justify-center py-10 md:py-16">
