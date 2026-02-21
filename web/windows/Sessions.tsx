@@ -81,6 +81,8 @@ const Sessions: React.FC<SessionsProps> = ({ language, pendingSessionKey, onSess
   const [talkMode, setTalkMode] = useState<string | null>(null);
 
   // Handle pending session key from cross-window navigation
+  // Note: Session may exist in usage stats but not in sessions list (if deleted/reset)
+  // In that case, we still switch to it - the chat will show empty or create new
   useEffect(() => {
     if (pendingSessionKey && pendingSessionKey !== sessionKey) {
       setSessionKey(pendingSessionKey);
