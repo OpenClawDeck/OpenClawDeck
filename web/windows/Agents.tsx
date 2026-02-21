@@ -406,10 +406,12 @@ const Agents: React.FC<AgentsProps> = ({ language }) => {
     setRunStream('');
 
     try {
+      const idempotencyKey = `${sessionKey}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
       const res = await gwApi.proxy('agent', {
         message: msg,
         agentId: selectedId,
         sessionKey,
+        idempotencyKey,
       }) as any;
       runIdRef.current = res?.runId || sessionKey;
     } catch (err: any) {
