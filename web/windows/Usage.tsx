@@ -321,6 +321,17 @@ const Usage: React.FC<UsageProps> = ({ language }) => {
   const [logsData, setLogsData] = useState<any[] | null>(null);
   const [logsLoading, setLogsLoading] = useState(false);
 
+  // Pagination
+  const [sessionsPage, setSessionsPage] = useState(1);
+  const [logsPage, setLogsPage] = useState(1);
+  const PAGE_SIZE = 20;
+
+  // Model filter (click on donut to filter)
+  const [selectedModel, setSelectedModel] = useState<string | null>(null);
+
+  // Cost trend view
+  const [trendView, setTrendView] = useState<'daily' | 'weekly' | 'monthly'>('daily');
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -393,6 +404,48 @@ const Usage: React.FC<UsageProps> = ({ language }) => {
     color: MODEL_COLORS[i % MODEL_COLORS.length],
     label: m.model || m.provider || 'unknown',
   }));
+
+  // Aggregate daily data by week/month for trend view
+  const trendData = useMemo(() => {
+    if (trendView === 'daily') return daily;
+    const grouped: Record<string, { date: string; tokens: number; cost: number }> = {};
+    daily.forEach(d => {
+      const date = new Date(d.date);
+      let key: string;
+      if (trendView === 'weekly') {
+        const weekStart = new Date(date);
+        weekStart.setDate(date.getDate() - date.getDay());
+        key = weekStart.toISOString().split('T')[0];
+      } else {
+        key = d.date.substring(0, 7); // YYYY-MM
+      }
+      if (!grouped[key]) grouped[key] = { date: key, tokens: 0, cost: 0 };
+      grouped[key].tokens += d.tokens || 0;
+      grouped[key].cost += d.cost || 0;
+    });
+    return Object.values(grouped).sort((a, b) => a.date.localeCompare(b.date));
+  }, [daily, trendView]);
+
+  // Filter sessions by selected model
+  const filteredSessions = useMemo(() => {
+    let list = sessions.filter(s => (s.totals?.totalTokens || 0) > 0);
+    if (selectedModel) {
+      // Note: session doesn't have model info directly, this is a placeholder
+      // In real implementation, you'd need to track which models were used in each session
+    }
+    return list.sort((a, b) => (b.totals?.totalTokens || 0) - (a.totals?.totalTokens || 0));
+  }, [sessions, selectedModel]);
+
+  // Paginated sessions
+  const paginatedSessions = useMemo(() => {
+    const start = (sessionsPage - 1) * PAGE_SIZE;
+    return filteredSessions.slice(start, start + PAGE_SIZE);
+  }, [filteredSessions, sessionsPage]);
+  const totalSessionPages = Math.ceil(filteredSessions.length / PAGE_SIZE);
+
+  // Reset page when data changes
+  useEffect(() => { setSessionsPage(1); }, [usageData]);
+  useEffect(() => { setLogsPage(1); }, [logsData]);
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-white dark:bg-[#1a1c20]">
@@ -626,13 +679,25 @@ const Usage: React.FC<UsageProps> = ({ language }) => {
               {/* Daily Trend Chart */}
               <div className="lg:col-span-2 rounded-2xl border border-slate-200/60 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-4">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-[11px] font-bold text-slate-600 dark:text-white/60 uppercase tracking-wider">{u.daily}</h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-[11px] font-bold text-slate-600 dark:text-white/60 uppercase tracking-wider">{u.costTrend || '费用趋势'}</h3>
+                    <div className="flex bg-slate-100 dark:bg-white/[0.06] p-0.5 rounded-md">
+                      {(['daily', 'weekly', 'monthly'] as const).map(v => (
+                        <button key={v} onClick={() => setTrendView(v)}
+                          className={`px-2 py-0.5 rounded text-[9px] font-bold transition-all ${
+                            trendView === v ? 'bg-white dark:bg-primary shadow-sm text-slate-700 dark:text-white' : 'text-slate-400 hover:text-slate-600'
+                          }`}>
+                          {v === 'daily' ? '日' : v === 'weekly' ? '周' : '月'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   <div className="flex items-center gap-3 text-[10px]">
                     <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-indigo-500" />{u.tokens}</span>
                     <span className="flex items-center gap-1"><span className="w-2 h-0.5 bg-amber-500 rounded" style={{ width: 8 }} />{u.cost}</span>
                   </div>
                 </div>
-                <TrendChart data={daily} height={160} />
+                <TrendChart data={trendData} height={160} />
                 {/* Daily summary below chart */}
                 {daily.length > 0 && (
                   <div className="mt-3 grid grid-cols-3 sm:grid-cols-5 gap-2">
@@ -649,11 +714,19 @@ const Usage: React.FC<UsageProps> = ({ language }) => {
 
               {/* Token Distribution Donut */}
               <div className="rounded-2xl border border-slate-200/60 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-4">
-                <h3 className="text-[11px] font-bold text-slate-600 dark:text-white/60 uppercase tracking-wider mb-3">{u.byModel}</h3>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-[11px] font-bold text-slate-600 dark:text-white/60 uppercase tracking-wider">{u.byModel}</h3>
+                  {selectedModel && (
+                    <button onClick={() => setSelectedModel(null)}
+                      className="text-[9px] px-2 py-0.5 rounded-full bg-primary/10 text-primary hover:bg-primary/20 transition-colors">
+                      ✕ 清除筛选
+                    </button>
+                  )}
+                </div>
                 <div className="flex justify-center mb-3">
-                  <div className="relative">
+                  <div className="relative cursor-pointer" onClick={() => setSelectedModel(null)}>
                     <DonutChart segments={tokenSegments} size={110} />
-                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                       <span className="text-[10px] text-slate-400 dark:text-white/40">{u.total}</span>
                       <span className="text-sm font-black tabular-nums dark:text-white text-slate-700">{fmtTokens(totals.totalTokens)}</span>
                     </div>
@@ -661,11 +734,14 @@ const Usage: React.FC<UsageProps> = ({ language }) => {
                 </div>
                 <div className="space-y-1.5">
                   {tokenSegments.map((seg, i) => (
-                    <div key={i} className="flex items-center gap-2 text-[10px]">
+                    <button key={i} onClick={() => setSelectedModel(selectedModel === seg.label ? null : seg.label)}
+                      className={`w-full flex items-center gap-2 text-[10px] px-2 py-1 rounded-lg transition-all ${
+                        selectedModel === seg.label ? 'bg-primary/10 ring-1 ring-primary/30' : 'hover:bg-slate-50 dark:hover:bg-white/[0.04]'
+                      }`}>
                       <span className="w-2 h-2 rounded-full shrink-0" style={{ background: seg.color }} />
-                      <span className="truncate flex-1 text-slate-600 dark:text-white/50">{seg.label}</span>
+                      <span className="truncate flex-1 text-left text-slate-600 dark:text-white/50">{seg.label}</span>
                       <span className="font-mono font-bold tabular-nums text-slate-500 dark:text-white/40">{fmtTokens(seg.value)}</span>
-                    </div>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -744,22 +820,32 @@ const Usage: React.FC<UsageProps> = ({ language }) => {
         );})()}
 
         {/* Sessions Tab */}
-        {totals && tab === 'sessions' && (() => {
-          const filteredSessions = sessions
-            .filter(s => (s.totals?.totalTokens || 0) > 0)
-            .sort((a, b) => (b.totals?.totalTokens || 0) - (a.totals?.totalTokens || 0))
-            .slice(0, 50);
-          return (
+        {totals && tab === 'sessions' && (
           <div className="space-y-2 max-w-4xl mx-auto animate-in fade-in duration-300">
-            {filteredSessions.length === 0 ? (
+            {/* Header with count and model filter indicator */}
+            <div className="flex items-center justify-between px-1 mb-2">
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-slate-500 dark:text-white/50">
+                  共 {filteredSessions.length} 个会话
+                  {selectedModel && <span className="text-primary ml-1">· 筛选: {selectedModel}</span>}
+                </span>
+              </div>
+              {totalSessionPages > 1 && (
+                <span className="text-[10px] text-slate-400 dark:text-white/40">
+                  第 {sessionsPage}/{totalSessionPages} 页
+                </span>
+              )}
+            </div>
+            {paginatedSessions.length === 0 ? (
               <div className="text-center py-12 text-slate-400 dark:text-white/40 text-[11px]">{u.noData}</div>
             ) : (
-              filteredSessions
+              <>
+              {paginatedSessions
                 .map((s, i) => (
                   <div key={s.key} className="rounded-xl border border-slate-200/60 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] px-4 py-3 hover:border-primary/30 transition-colors">
                     <div className="flex items-center gap-3">
                       <div className="w-6 h-6 rounded-lg bg-slate-100 dark:bg-white/[0.06] flex items-center justify-center text-[10px] font-bold text-slate-400 dark:text-white/40">
-                        {i + 1}
+                        {(sessionsPage - 1) * PAGE_SIZE + i + 1}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
@@ -796,10 +882,43 @@ const Usage: React.FC<UsageProps> = ({ language }) => {
                       </div>
                     </div>
                   </div>
-                ))
+                ))}
+              {/* Pagination */}
+              {totalSessionPages > 1 && (
+                <div className="flex items-center justify-center gap-2 pt-4">
+                  <button onClick={() => setSessionsPage(p => Math.max(1, p - 1))} disabled={sessionsPage === 1}
+                    className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-slate-100 dark:bg-white/[0.06] text-slate-600 dark:text-white/60 hover:bg-slate-200 dark:hover:bg-white/[0.1] disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                    ← 上一页
+                  </button>
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: Math.min(5, totalSessionPages) }, (_, i) => {
+                      let page: number;
+                      if (totalSessionPages <= 5) page = i + 1;
+                      else if (sessionsPage <= 3) page = i + 1;
+                      else if (sessionsPage >= totalSessionPages - 2) page = totalSessionPages - 4 + i;
+                      else page = sessionsPage - 2 + i;
+                      return (
+                        <button key={page} onClick={() => setSessionsPage(page)}
+                          className={`w-7 h-7 rounded-lg text-[11px] font-bold transition-colors ${
+                            sessionsPage === page
+                              ? 'bg-primary text-white'
+                              : 'bg-slate-100 dark:bg-white/[0.06] text-slate-600 dark:text-white/60 hover:bg-slate-200 dark:hover:bg-white/[0.1]'
+                          }`}>
+                          {page}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <button onClick={() => setSessionsPage(p => Math.min(totalSessionPages, p + 1))} disabled={sessionsPage === totalSessionPages}
+                    className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-slate-100 dark:bg-white/[0.06] text-slate-600 dark:text-white/60 hover:bg-slate-200 dark:hover:bg-white/[0.1] disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                    下一页 →
+                  </button>
+                </div>
+              )}
+              </>
             )}
           </div>
-        );})()}
+        )}
 
         {/* Timeseries Tab */}
         {tab === 'timeseries' && (
@@ -842,7 +961,11 @@ const Usage: React.FC<UsageProps> = ({ language }) => {
         )}
 
         {/* Logs Tab */}
-        {tab === 'logs' && (
+        {tab === 'logs' && (() => {
+          const filtered = (logsData || []).filter((log: any) => (log.tokens || 0) > 0 || log.error);
+          const totalLogsPages = Math.ceil(filtered.length / PAGE_SIZE);
+          const paginatedLogs = filtered.slice((logsPage - 1) * PAGE_SIZE, logsPage * PAGE_SIZE);
+          return (
           <div className="max-w-4xl mx-auto animate-in fade-in duration-300">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
@@ -851,8 +974,9 @@ const Usage: React.FC<UsageProps> = ({ language }) => {
                 </button>
                 <h3 className="text-[12px] font-bold text-slate-700 dark:text-white/80">{u.usageLogs}</h3>
                 {selectedSessionKey && <span className="text-[10px] font-mono text-slate-400 dark:text-white/35 truncate max-w-[200px]">{selectedSessionKey}</span>}
+                {filtered.length > 0 && <span className="text-[10px] text-slate-400 dark:text-white/40">({filtered.length} 条)</span>}
               </div>
-              <button onClick={() => { setLogsData(null); fetchLogs(); }} disabled={logsLoading}
+              <button onClick={() => { setLogsData(null); setLogsPage(1); fetchLogs(); }} disabled={logsLoading}
                 className="text-[10px] text-primary hover:underline disabled:opacity-40">{u.loadLogs}</button>
             </div>
             {logsLoading ? (
@@ -860,11 +984,10 @@ const Usage: React.FC<UsageProps> = ({ language }) => {
                 <span className="material-symbols-outlined text-[20px] animate-spin mr-2">progress_activity</span>
                 <span className="text-[11px]">{u.logsLoading}</span>
               </div>
-            ) : logsData && logsData.length > 0 ? (() => {
-              const filtered = logsData.filter((log: any) => (log.tokens || 0) > 0 || log.error);
-              return filtered.length > 0 ? (
+            ) : paginatedLogs.length > 0 ? (
+              <>
               <div className="space-y-1">
-                {filtered.map((log: any, i: number) => (
+                {paginatedLogs.map((log: any, i: number) => (
                   <div key={i} className="px-3 py-2 rounded-lg bg-white dark:bg-white/[0.02] border border-slate-200/40 dark:border-white/[0.04]">
                     <div className="flex items-center gap-2 text-[10px]">
                       <span className="font-mono text-slate-400 dark:text-white/40 w-32 shrink-0">{fmtTimestamp(log.timestamp || log.date || log.ts)}</span>
@@ -877,11 +1000,28 @@ const Usage: React.FC<UsageProps> = ({ language }) => {
                   </div>
                 ))}
               </div>
-            ) : <div className="text-center py-16 text-slate-400 dark:text-white/40 text-[11px]">{u.noLogs}</div>;})() : (
+              {/* Logs Pagination */}
+              {totalLogsPages > 1 && (
+                <div className="flex items-center justify-center gap-2 pt-4">
+                  <button onClick={() => setLogsPage(p => Math.max(1, p - 1))} disabled={logsPage === 1}
+                    className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-slate-100 dark:bg-white/[0.06] text-slate-600 dark:text-white/60 hover:bg-slate-200 dark:hover:bg-white/[0.1] disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                    ← 上一页
+                  </button>
+                  <span className="text-[10px] text-slate-400 dark:text-white/40">
+                    {logsPage} / {totalLogsPages}
+                  </span>
+                  <button onClick={() => setLogsPage(p => Math.min(totalLogsPages, p + 1))} disabled={logsPage === totalLogsPages}
+                    className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-slate-100 dark:bg-white/[0.06] text-slate-600 dark:text-white/60 hover:bg-slate-200 dark:hover:bg-white/[0.1] disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                    下一页 →
+                  </button>
+                </div>
+              )}
+              </>
+            ) : (
               <div className="text-center py-16 text-slate-400 dark:text-white/40 text-[11px]">{u.noLogs}</div>
             )}
           </div>
-        )}
+        );})()}
       </div>
 
       {/* Budget Settings Modal */}
